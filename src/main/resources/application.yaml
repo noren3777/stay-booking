@@ -6,3 +6,6 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+
+  modulith:
+    detection-strategy: explicitly-annotated
