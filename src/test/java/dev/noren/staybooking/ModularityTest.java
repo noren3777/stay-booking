@@ -22,7 +22,8 @@ public class ModularityTest {
                         "property",
                         "booking",
                         "payment",
-                        "review"
+                        "review",
+                        "bootstrap"
                 );
     }
 
