@@ -9,3 +9,9 @@ spring:
 
   modulith:
     detection-strategy: explicitly-annotated
+
+app:
+  jwt:
+    issuer: stay-booking
+    ttl: PT1H
+    secret-base64: ${JWT_SECRET_BASE64}

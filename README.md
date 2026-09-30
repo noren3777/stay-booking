@@ -6,6 +6,7 @@ Backend application for an accommodation booking service built with Spring Boot.
 
 - JDK 21
 - Docker with Docker Compose
+- OpenSSL (to generate a local JWT secret)
 
 You do not need to install Maven separately because the project includes Maven Wrapper.
 
@@ -17,7 +18,17 @@ You do not need to install Maven separately because the project includes Maven W
    docker compose up -d --wait postgres
    ```
 
-2. Run the application with the local profile:
+2. Set the required JWT signing secret in the terminal where you will run the application:
+
+   ```bash
+   export JWT_SECRET_BASE64="$(openssl rand -base64 32)"
+   ```
+
+   In PowerShell, use `$env:JWT_SECRET_BASE64 = (openssl rand -base64 32)`.
+
+   `JWT_SECRET_BASE64` must be valid Base64 encoding of at least 32 random bytes (256 bits). It is required for every profile and has no default. Reuse the same secret across restarts to keep existing tokens valid.
+
+3. Run the application with the local profile:
 
    ```bash
    ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
@@ -25,11 +36,11 @@ You do not need to install Maven separately because the project includes Maven W
 
    On Windows, use `mvnw.cmd` instead of `./mvnw`.
 
-The application will be available at `http://localhost:8080`. Its health endpoint is available at `http://localhost:8080/actuator/health`.
+The application will be available at `http://localhost:8080`. Its health endpoint at `http://localhost:8080/actuator/health` requires a valid JWT access token in the `Authorization: Bearer <token>` header.
 
 The default database connection uses the `staybooking` database, username `user`, password `password`, and port `5432`. You can override these settings with the `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` environment variables.
 
-Docker must be running for both commands because the test suite uses PostgreSQL Testcontainers.
+Docker must be running for the local PostgreSQL service and for tests that use PostgreSQL Testcontainers.
 
 ## Build and Test
 
@@ -47,7 +58,7 @@ Docker must be running for both commands because the test suite uses PostgreSQL 
 ./mvnw clean
 ```
 
-The packaged JAR is created at `target/stay-booking-0.0.1-SNAPSHOT.jar`. Run it with:
+The packaged JAR is created at `target/stay-booking-0.0.1-SNAPSHOT.jar`. With `JWT_SECRET_BASE64` set as described above, run it with:
 
 ```bash
 java -jar target/stay-booking-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
@@ -55,16 +66,15 @@ java -jar target/stay-booking-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
 
 ## Production Profile
 
-The `prod` profile currently configures production-style external
-credentials only. The application is not production-ready until the
-security implementation is completed.
+The `prod` profile uses external database credentials and a JWT signing secret. The identity/security foundation is implemented: registration, login, current-user lookup, BCrypt password hashing, stateless JWT access tokens, and role authorization. The application remains under development; Property, Booking, Payment, and Review use cases are still pending.
 
-Database connection variables are required when using the `prod` profile:
+Database connection variables and `JWT_SECRET_BASE64` are required when using the `prod` profile. Supply a persistent JWT secret from your secret manager:
 
 ```bash
 DB_URL='jdbc:postgresql://<db-host>:5432/staybooking' \
 DB_USERNAME='<db-user>' \
 DB_PASSWORD='<value-from-secret-manager>' \
+JWT_SECRET_BASE64='<base64-encoded-secret-from-secret-manager>' \
 java -jar target/stay-booking-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 ```
 
