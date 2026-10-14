@@ -1,11 +1,11 @@
 CREATE TABLE users
 (
     id            UUID                        NOT NULL,
+    created_at    TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    updated_at    TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     email         VARCHAR(255)                NOT NULL,
     password_hash VARCHAR(255)                NOT NULL,
     role          VARCHAR(20)                 NOT NULL,
-    created_at    TIMESTAMP(6) WITH TIME ZONE NOT NULL,
-    updated_at    TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (id)
 );
 

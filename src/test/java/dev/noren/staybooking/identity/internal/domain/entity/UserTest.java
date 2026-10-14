@@ -1,6 +1,6 @@
 package dev.noren.staybooking.identity.internal.domain.entity;
 
-import dev.noren.staybooking.bootstrap.exception.DomainValidationException;
+import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
 import org.junit.jupiter.api.Test;
 
@@ -29,13 +29,13 @@ public class UserTest {
     @Test
     void rejectsBlankEmail() {
         assertThatThrownBy(() -> User.create("  ", HASH, null))
-                .isInstanceOf(DomainValidationException.class);
+                .isInstanceOf(InvalidDomainArgumentException.class);
     }
 
     @Test
     void rejectsBlankPasswordHash() {
         assertThatThrownBy(() -> User.create("alice@mail.com", "", null))
-                .isInstanceOf(DomainValidationException.class);
+                .isInstanceOf(InvalidDomainArgumentException.class);
     }
 
 }

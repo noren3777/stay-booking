@@ -66,7 +66,9 @@ java -jar target/stay-booking-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
 
 ## Production Profile
 
-The `prod` profile uses external database credentials and a JWT signing secret. The identity/security foundation is implemented: registration, login, current-user lookup, BCrypt password hashing, stateless JWT access tokens, and role authorization. The application remains under development; Property, Booking, Payment, and Review use cases are still pending.
+The `prod` profile uses external database credentials and a JWT signing secret. The identity/security foundation is implemented: registration, login, current-user lookup, BCrypt password hashing, stateless JWT access tokens, and role authorization.
+
+The Property rich aggregate and its current HTTP use cases are implemented: creation, details and price/capacity updates, activation/deactivation, admin block/unblock and host reassignment, and soft deletion. Changes to an existing property require an `If-Match` version ETag. Property relationships, search, and the cross-module Property API belong to later stages; Booking, Payment, and Review use cases are also pending.
 
 Database connection variables and `JWT_SECRET_BASE64` are required when using the `prod` profile. Supply a persistent JWT secret from your secret manager:
 
