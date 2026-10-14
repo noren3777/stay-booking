@@ -1,7 +1,7 @@
 package dev.noren.staybooking.identity.internal.domain.entity;
 
 import dev.noren.staybooking.bootstrap.entity.BaseEntity;
-import dev.noren.staybooking.bootstrap.exception.DomainValidationException;
+import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
 import dev.noren.staybooking.identity.internal.domain.normalization.EmailNormalizer;
 import jakarta.persistence.*;
@@ -42,21 +42,21 @@ public class User extends BaseEntity {
 
     private void changeEmail(String email) {
         if (email == null || email.isBlank()) {
-            throw new DomainValidationException("email cannot be blank");
+            throw new InvalidDomainArgumentException("email cannot be blank");
         }
         this.email = EmailNormalizer.normalize(email);
     }
 
     private void changePasswordHash(String passwordHash) {
         if (passwordHash == null || passwordHash.isBlank()) {
-            throw new DomainValidationException("password hash cannot be blank");
+            throw new InvalidDomainArgumentException("password hash cannot be blank");
         }
         this.passwordHash = passwordHash;
     }
 
     private void changeRole(UserRole role) {
         if (role == null) {
-            throw new DomainValidationException("role cannot be null");
+            throw new InvalidDomainArgumentException("role cannot be null");
         }
         this.role = role;
     }
