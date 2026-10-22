@@ -89,10 +89,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-
-        PropertyResult result = service.activate(id, expectedVersion);
-
-        return voidResponse(result);
+        long version = service.activate(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/deactivate")
@@ -102,8 +100,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.deactivate(id, expectedVersion);
-        return voidResponse(result);
+        long version = service.deactivate(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/block")
@@ -113,8 +111,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.block(id, expectedVersion);
-        return voidResponse(result);
+        long version = service.block(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/unblock")
@@ -124,8 +122,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.unblock(id, expectedVersion);
-        return voidResponse(result);
+        long version = service.unblock(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/host")
@@ -136,12 +134,12 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.changeHost(id, request.hostId(), expectedVersion);
-        return voidResponse(result);
+        long version = service.changeHost(id, request.hostId(), expectedVersion);
+        return voidResponse(version);
     }
 
-    private ResponseEntity<Void> voidResponse(PropertyResult result) {
-        String etag = versionHeader.toEtag(result.version());
+    private ResponseEntity<Void> voidResponse(long version) {
+        String etag = versionHeader.toEtag(version);
 
         return ResponseEntity.noContent()
                 .header(HttpHeaders.ETAG, etag)

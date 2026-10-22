@@ -74,27 +74,27 @@ public class PropertyService {
         property.delete();
     }
 
-    public PropertyResult activate(UUID id, long expectedVersion) {
+    public long activate(UUID id, long expectedVersion) {
         Property property = getPropertyManagedByCurrentHost(id);
         requireVersion(property, expectedVersion);
 
         property.activate();
 
         repository.flush();
-        return mapper.toResult(property);
+        return property.getVersion();
     }
 
-    public PropertyResult deactivate(UUID id, long expectedVersion) {
+    public long deactivate(UUID id, long expectedVersion) {
         Property property = getPropertyManagedByCurrentHost(id);
         requireVersion(property, expectedVersion);
 
         property.deactivate();
 
         repository.flush();
-        return mapper.toResult(property);
+        return property.getVersion();
     }
 
-    public PropertyResult block(UUID id, long expectedVersion) {
+    public long block(UUID id, long expectedVersion) {
         authorization.requireCurrentAdmin();
 
         Property property = getById(id);
@@ -103,10 +103,10 @@ public class PropertyService {
         property.block();
 
         repository.flush();
-        return mapper.toResult(property);
+        return property.getVersion();
     }
 
-    public PropertyResult unblock(UUID id, long expectedVersion) {
+    public long unblock(UUID id, long expectedVersion) {
         authorization.requireCurrentAdmin();
 
         Property property = getById(id);
@@ -115,10 +115,10 @@ public class PropertyService {
         property.unblock();
 
         repository.flush();
-        return mapper.toResult(property);
+        return property.getVersion();
     }
 
-    public PropertyResult changeHost(UUID id, UUID hostId, long expectedVersion) {
+    public long changeHost(UUID id, UUID hostId, long expectedVersion) {
         authorization.requireCurrentAdmin();
         if (!identityApi.hasRole(hostId, ActorRole.HOST)) {
             throw new InvalidDomainArgumentException("hostId must refer to a HOST user");
@@ -130,7 +130,7 @@ public class PropertyService {
         property.changeHost(hostId);
 
         repository.flush();
-        return mapper.toResult(property);
+        return property.getVersion();
     }
 
     private Property getPropertyManagedByCurrentHost(UUID id) {
