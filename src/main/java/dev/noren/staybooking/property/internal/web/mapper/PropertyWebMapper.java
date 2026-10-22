@@ -1,7 +1,7 @@
 package dev.noren.staybooking.property.internal.web.mapper;
 
 import dev.noren.staybooking.bootstrap.web.mapper.JsonNullablePatchMapper;
-import dev.noren.staybooking.property.internal.domain.entity.Property;
+import dev.noren.staybooking.property.internal.application.result.PropertyResult;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
 import dev.noren.staybooking.property.internal.web.request.CreatePropertyRequest;
@@ -16,7 +16,7 @@ import org.mapstruct.Mapper;
         uses = JsonNullablePatchMapper.class
 )
 public interface PropertyWebMapper {
-    PropertyResponse toResponse(Property property);
+    PropertyResponse toResponse(PropertyResult result);
 
     PropertyDetailsPatch toDetails(UpdatePropertyRequest request);
 
