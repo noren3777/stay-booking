@@ -2,7 +2,7 @@ package dev.noren.staybooking.property.internal.web.controller;
 
 import dev.noren.staybooking.bootstrap.web.parser.VersionHeader;
 import dev.noren.staybooking.property.internal.application.service.PropertyService;
-import dev.noren.staybooking.property.internal.domain.entity.Property;
+import dev.noren.staybooking.property.internal.application.result.PropertyResult;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
 import dev.noren.staybooking.property.internal.web.mapper.PropertyWebMapper;
@@ -32,14 +32,14 @@ public class PropertyController {
 
     @GetMapping("/{id}")
     public ResponseEntity<PropertyResponse> getById(@PathVariable UUID id) {
-        Property property = service.getActiveById(id);
+        PropertyResult property = service.getActiveById(id);
         return propertyResponse(property);
     }
 
     @GetMapping("/{id}/management")
     @PreAuthorize("hasAnyRole('ADMIN', 'HOST')")
     public ResponseEntity<PropertyResponse> management(@PathVariable UUID id) {
-        Property property = service.getForManagement(id);
+        PropertyResult property = service.getForManagement(id);
         return propertyResponse(property);
     }
 
@@ -47,13 +47,13 @@ public class PropertyController {
     @PreAuthorize("hasRole('HOST')")
     public ResponseEntity<PropertyResponse> create(@Valid @RequestBody CreatePropertyRequest request) {
         CreatePropertyDetails details = mapper.toDetails(request);
-        Property property = service.create(details);
+        PropertyResult property = service.create(details);
 
         PropertyResponse response = mapper.toResponse(property);
-        String etag = versionHeader.toEtag(property.getVersion());
+        String etag = versionHeader.toEtag(property.version());
 
         return ResponseEntity
-                .created(URI.create("/api/properties/" + property.getId()))
+                .created(URI.create("/api/properties/" + property.id()))
                 .header(HttpHeaders.ETAG, etag)
                 .body(response);
     }
@@ -67,7 +67,7 @@ public class PropertyController {
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
         PropertyDetailsPatch details = mapper.toDetails(request);
-        Property property = service.update(id, details, expectedVersion);
+        PropertyResult property = service.update(id, details, expectedVersion);
         return propertyResponse(property);
     }
 
@@ -90,9 +90,9 @@ public class PropertyController {
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
 
-        Property property = service.activate(id, expectedVersion);
+        PropertyResult result = service.activate(id, expectedVersion);
 
-        return voidResponse(property);
+        return voidResponse(result);
     }
 
     @PatchMapping("/{id}/deactivate")
@@ -102,8 +102,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        Property property = service.deactivate(id, expectedVersion);
-        return voidResponse(property);
+        PropertyResult result = service.deactivate(id, expectedVersion);
+        return voidResponse(result);
     }
 
     @PatchMapping("/{id}/block")
@@ -113,8 +113,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        Property property = service.block(id, expectedVersion);
-        return voidResponse(property);
+        PropertyResult result = service.block(id, expectedVersion);
+        return voidResponse(result);
     }
 
     @PatchMapping("/{id}/unblock")
@@ -124,8 +124,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        Property property = service.unblock(id, expectedVersion);
-        return voidResponse(property);
+        PropertyResult result = service.unblock(id, expectedVersion);
+        return voidResponse(result);
     }
 
     @PatchMapping("/{id}/host")
@@ -136,21 +136,21 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        Property property = service.changeHost(id, request.hostId(), expectedVersion);
-        return voidResponse(property);
+        PropertyResult result = service.changeHost(id, request.hostId(), expectedVersion);
+        return voidResponse(result);
     }
 
-    private ResponseEntity<Void> voidResponse(Property property) {
-        String etag = versionHeader.toEtag(property.getVersion());
+    private ResponseEntity<Void> voidResponse(PropertyResult result) {
+        String etag = versionHeader.toEtag(result.version());
 
         return ResponseEntity.noContent()
                 .header(HttpHeaders.ETAG, etag)
                 .build();
     }
 
-    private ResponseEntity<PropertyResponse> propertyResponse(Property property) {
+    private ResponseEntity<PropertyResponse> propertyResponse(PropertyResult property) {
         PropertyResponse response = mapper.toResponse(property);
-        String etag = versionHeader.toEtag(property.getVersion());
+        String etag = versionHeader.toEtag(property.version());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.ETAG, etag)

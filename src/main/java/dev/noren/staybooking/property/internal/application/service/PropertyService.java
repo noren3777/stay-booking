@@ -7,6 +7,8 @@ import dev.noren.staybooking.identity.api.IdentityApi;
 import dev.noren.staybooking.identity.api.view.ActorRole;
 import dev.noren.staybooking.identity.api.view.ActorView;
 import dev.noren.staybooking.property.internal.application.authorization.PropertyAuthorization;
+import dev.noren.staybooking.property.internal.application.mapper.PropertyApplicationMapper;
+import dev.noren.staybooking.property.internal.application.result.PropertyResult;
 import dev.noren.staybooking.property.internal.domain.entity.Property;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
@@ -26,6 +28,7 @@ public class PropertyService {
     private final PropertyRepository repository;
     private final PropertyAuthorization authorization;
     private final IdentityApi identityApi;
+    private final PropertyApplicationMapper mapper;
 
     private Property getById(UUID id) {
         return repository.findById(id)
@@ -33,33 +36,36 @@ public class PropertyService {
     }
 
     @Transactional(readOnly = true)
-    public Property getActiveById(UUID id) {
-        return repository.findByIdAndStatus(id, PropertyStatus.ACTIVE)
+    public PropertyResult getActiveById(UUID id) {
+        Property property = repository.findByIdAndStatus(id, PropertyStatus.ACTIVE)
                 .orElseThrow(() -> new EntityNotFoundException("Property not found"));
+        return mapper.toResult(property);
     }
 
     @Transactional(readOnly = true)
-    public Property getForManagement(UUID id) {
+    public PropertyResult getForManagement(UUID id) {
         Property property = getById(id);
         authorization.requireManagement(property);
-        return property;
+        return mapper.toResult(property);
     }
 
-    public Property create(CreatePropertyDetails details) {
+    public PropertyResult create(CreatePropertyDetails details) {
         ActorView actor = authorization.requireCurrentHost();
 
         Property property = Property.create(actor.id(), details);
 
-        return repository.save(property);
+        repository.saveAndFlush(property);
+        return mapper.toResult(property);
     }
 
-    public Property update(UUID id, PropertyDetailsPatch details, Long expectedVersion) {
+    public PropertyResult update(UUID id, PropertyDetailsPatch details, Long expectedVersion) {
         Property property = getPropertyManagedByCurrentHost(id);
 
         requireVersion(property, expectedVersion);
         property.updateDetails(details);
 
-        return property;
+        repository.flush();
+        return mapper.toResult(property);
     }
 
     public void delete(UUID id, long expectedVersion) {
@@ -68,25 +74,27 @@ public class PropertyService {
         property.delete();
     }
 
-    public Property activate(UUID id, long expectedVersion) {
+    public PropertyResult activate(UUID id, long expectedVersion) {
         Property property = getPropertyManagedByCurrentHost(id);
         requireVersion(property, expectedVersion);
 
         property.activate();
 
-        return property;
+        repository.flush();
+        return mapper.toResult(property);
     }
 
-    public Property deactivate(UUID id, long expectedVersion) {
+    public PropertyResult deactivate(UUID id, long expectedVersion) {
         Property property = getPropertyManagedByCurrentHost(id);
         requireVersion(property, expectedVersion);
 
         property.deactivate();
 
-        return property;
+        repository.flush();
+        return mapper.toResult(property);
     }
 
-    public Property block(UUID id, long expectedVersion) {
+    public PropertyResult block(UUID id, long expectedVersion) {
         authorization.requireCurrentAdmin();
 
         Property property = getById(id);
@@ -94,10 +102,11 @@ public class PropertyService {
 
         property.block();
 
-        return property;
+        repository.flush();
+        return mapper.toResult(property);
     }
 
-    public Property unblock(UUID id, long expectedVersion) {
+    public PropertyResult unblock(UUID id, long expectedVersion) {
         authorization.requireCurrentAdmin();
 
         Property property = getById(id);
@@ -105,10 +114,11 @@ public class PropertyService {
 
         property.unblock();
 
-        return property;
+        repository.flush();
+        return mapper.toResult(property);
     }
 
-    public Property changeHost(UUID id, UUID hostId, long expectedVersion) {
+    public PropertyResult changeHost(UUID id, UUID hostId, long expectedVersion) {
         authorization.requireCurrentAdmin();
         if (!identityApi.hasRole(hostId, ActorRole.HOST)) {
             throw new InvalidDomainArgumentException("hostId must refer to a HOST user");
@@ -119,7 +129,8 @@ public class PropertyService {
 
         property.changeHost(hostId);
 
-        return property;
+        repository.flush();
+        return mapper.toResult(property);
     }
 
     private Property getPropertyManagedByCurrentHost(UUID id) {
