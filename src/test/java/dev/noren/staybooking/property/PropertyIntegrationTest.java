@@ -4,8 +4,14 @@ import dev.noren.staybooking.identity.internal.application.result.TokenResult;
 import dev.noren.staybooking.identity.internal.domain.entity.User;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
 import dev.noren.staybooking.identity.internal.persistence.UserRepository;
+import dev.noren.staybooking.property.internal.domain.entity.Amenity;
+import dev.noren.staybooking.property.internal.domain.entity.Property;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
+import dev.noren.staybooking.property.internal.persistence.repository.AmenityRepository;
+import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
+import dev.noren.staybooking.property.internal.web.response.AmenityResponse;
 import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -13,16 +19,25 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,7 +67,254 @@ class PropertyIntegrationTest {
 
     private final RestTestClient http;
     private final UserRepository users;
+    private final AmenityRepository amenities;
+    private final PropertyRepository properties;
+    private final JdbcTemplate jdbc;
+    private final EntityManager entityManager;
+    private final TransactionTemplate transactions;
     private final PasswordEncoder encoder;
+
+    @Test
+    void amenityEqualityWorksAcrossPersistenceContextsAndKeepsHashStable() {
+        Amenity amenity = Amenity.create("Wi-Fi-" + UUID.randomUUID());
+        Amenity anotherNewAmenity = Amenity.create(amenity.getName());
+        assertThat(amenity).isNotEqualTo(anotherNewAmenity);
+
+        Set<Amenity> selected = new HashSet<>();
+        selected.add(amenity);
+        int hashBeforeSave = amenity.hashCode();
+        amenities.saveAndFlush(amenity);
+
+        Amenity reloaded = amenities.findById(amenity.getId()).orElseThrow();
+        assertThat(reloaded).isNotSameAs(amenity);
+        assertThat(reloaded).isEqualTo(amenity);
+        assertThat(reloaded.hashCode()).isEqualTo(hashBeforeSave);
+        assertThat(selected.contains(reloaded)).isTrue();
+
+        Amenity different = amenities.saveAndFlush(Amenity.create("Parking-" + UUID.randomUUID()));
+        assertThat(different).isNotEqualTo(amenity);
+
+        transactions.executeWithoutResult(status -> {
+            Amenity reference = entityManager.getReference(Amenity.class, amenity.getId());
+            assertThat(reference).isEqualTo(amenity);
+            assertThat(amenity).isEqualTo(reference);
+            assertThat(selected.contains(reference)).isTrue();
+        });
+    }
+
+    @Test
+    void amenitiesAreReplacedAndClearedWithoutChangingCatalog() {
+        String hostToken = createUserAndLogin(UserRole.HOST);
+        CreatedProperty created = createProperty(hostToken);
+        String wifiName = "Wi-Fi-" + UUID.randomUUID();
+        String parkingName = "Parking-" + UUID.randomUUID();
+        Amenity wifi = amenities.saveAndFlush(Amenity.create(wifiName));
+        Amenity parking = amenities.saveAndFlush(Amenity.create(parkingName));
+
+        var assigned = putAmenities(hostToken, created.id(), created.etag(),
+                List.of(wifi.getId(), parking.getId()))
+                .expectStatus().isNoContent()
+                .expectBody().isEmpty();
+
+        assertThat(assigned.getResponseHeaders().getETag()).isEqualTo("\"1\"");
+        assertThat(joinCount(created.id())).isEqualTo(2);
+
+        http.get()
+                .uri("/api/properties/{id}", created.id())
+                .exchange().expectStatus().isNotFound();
+        var managementDetail = http.get()
+                .uri("/api/properties/{id}/management", created.id())
+                .headers(headers -> headers.setBearerAuth(hostToken))
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult();
+        assertThat(managementDetail.getResponseBody()).isNotNull();
+        assertThat(managementDetail.getResponseBody().amenities())
+                .extracting(AmenityResponse::name)
+                .containsExactly(parkingName, wifiName);
+        assertThat(managementDetail.getResponseBody().version()).isEqualTo(1L);
+        assertThat(managementDetail.getResponseHeaders().getETag()).isEqualTo("\"1\"");
+
+        var repeated = putAmenities(hostToken, created.id(), "\"1\"",
+                List.of(parking.getId(), wifi.getId()))
+                .expectStatus().isNoContent()
+                .expectBody().isEmpty();
+        assertThat(repeated.getResponseHeaders().getETag()).isEqualTo("\"1\"");
+
+        var replaced = putAmenities(hostToken, created.id(), "\"1\"", List.of(wifi.getId()))
+                .expectStatus().isNoContent()
+                .expectBody().isEmpty();
+        assertThat(replaced.getResponseHeaders().getETag()).isEqualTo("\"2\"");
+        assertThat(joinCount(created.id())).isEqualTo(1);
+
+        var cleared = putAmenities(hostToken, created.id(), "\"2\"", List.of())
+                .expectStatus().isNoContent()
+                .expectBody().isEmpty();
+        assertThat(cleared.getResponseHeaders().getETag()).isEqualTo("\"3\"");
+        assertThat(joinCount(created.id())).isZero();
+        assertThat(amenities.existsById(wifi.getId())).isTrue();
+        assertThat(amenities.existsById(parking.getId())).isTrue();
+
+        var emptyDetail = http.get()
+                .uri("/api/properties/{id}/management", created.id())
+                .headers(headers -> headers.setBearerAuth(hostToken))
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult();
+        assertThat(emptyDetail.getResponseBody()).isNotNull();
+        assertThat(emptyDetail.getResponseBody().amenities()).isEmpty();
+        assertThat(emptyDetail.getResponseHeaders().getETag()).isEqualTo("\"3\"");
+    }
+
+    @Test
+    void amenityChangesRequireOwnerCurrentVersionAndValidIds() {
+        String ownerToken = createUserAndLogin(UserRole.HOST);
+        String otherHostToken = createUserAndLogin(UserRole.HOST);
+        String adminToken = createUserAndLogin(UserRole.ADMIN);
+        CreatedProperty created = createProperty(ownerToken);
+        Amenity wifi = amenities.saveAndFlush(Amenity.create("Wi-Fi-" + UUID.randomUUID()));
+
+        putAmenities(otherHostToken, created.id(), created.etag(), List.of(wifi.getId()))
+                .expectStatus().isForbidden();
+        putAmenities(ownerToken, created.id(), null, List.of(wifi.getId()))
+                .expectStatus().isEqualTo(428);
+        putAmenities(ownerToken, created.id(), created.etag(), List.of(wifi.getId(), UUID.randomUUID()))
+                .expectStatus().isNotFound();
+        putAmenities(ownerToken, created.id(), created.etag(), List.of(wifi.getId(), wifi.getId()))
+                .expectStatus().isBadRequest();
+        assertThat(joinCount(created.id())).isZero();
+
+        putAmenities(ownerToken, created.id(), created.etag(), List.of(wifi.getId()))
+                .expectStatus().isNoContent();
+        putAmenities(ownerToken, created.id(), created.etag(), List.of())
+                .expectStatus().isEqualTo(412);
+        assertThat(joinCount(created.id())).isEqualTo(1);
+
+        String blockedEtag = http.patch()
+                .uri("/api/properties/{id}/block", created.id())
+                .headers(headers -> {
+                    headers.setBearerAuth(adminToken);
+                    headers.set(HttpHeaders.IF_MATCH, "\"1\"");
+                })
+                .exchange().expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        putAmenities(ownerToken, created.id(), blockedEtag, List.of())
+                .expectStatus().isEqualTo(409);
+        assertThat(joinCount(created.id())).isEqualTo(1);
+    }
+
+    @Test
+    void simultaneousAmenityReplacementsCannotBothCommit() throws Exception {
+        String hostToken = createUserAndLogin(UserRole.HOST);
+        CreatedProperty created = createProperty(hostToken);
+        Amenity wifi = amenities.saveAndFlush(Amenity.create("Wi-Fi-" + UUID.randomUUID()));
+        Amenity parking = amenities.saveAndFlush(Amenity.create("Parking-" + UUID.randomUUID()));
+        var barrier = new CyclicBarrier(2);
+        var executor = Executors.newFixedThreadPool(2);
+
+        Callable<Boolean> selectWifi = () -> replaceAmenitiesInParallel(created.id(), wifi.getId(), barrier);
+        Callable<Boolean> selectParking = () -> replaceAmenitiesInParallel(created.id(), parking.getId(), barrier);
+
+        boolean wifiCommitted;
+        boolean parkingCommitted;
+        try {
+            var first = executor.submit(selectWifi);
+            var second = executor.submit(selectParking);
+            wifiCommitted = first.get(20, TimeUnit.SECONDS);
+            parkingCommitted = second.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(wifiCommitted).isNotEqualTo(parkingCommitted);
+        assertThat(jdbc.queryForList(
+                "SELECT amenity_id FROM property_amenities WHERE property_id = ?",
+                UUID.class, created.id()
+        )).containsExactly(wifiCommitted ? wifi.getId() : parking.getId());
+
+        var detail = http.get()
+                .uri("/api/properties/{id}/management", created.id())
+                .headers(headers -> headers.setBearerAuth(hostToken))
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult();
+        assertThat(detail.getResponseBody()).isNotNull();
+        assertThat(detail.getResponseBody().version()).isEqualTo(1L);
+        assertThat(detail.getResponseHeaders().getETag()).isEqualTo("\"1\"");
+    }
+
+    @Test
+    void publicDetailShowsSortedAmenitiesForActiveProperty() {
+        String hostToken = createUserAndLogin(UserRole.HOST);
+        CreatedProperty created = createProperty(hostToken);
+        Amenity wifi = amenities.saveAndFlush(Amenity.create("Wi-Fi-" + UUID.randomUUID()));
+        Amenity parking = amenities.saveAndFlush(Amenity.create("Parking-" + UUID.randomUUID()));
+
+        String activeEtag = http.patch()
+                .uri("/api/properties/{id}/activate", created.id())
+                .headers(headers -> {
+                    headers.setBearerAuth(hostToken);
+                    headers.set(HttpHeaders.IF_MATCH, created.etag());
+                })
+                .exchange().expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+
+        putAmenities(hostToken, created.id(), activeEtag,
+                List.of(wifi.getId(), parking.getId())).expectStatus().isNoContent();
+
+        var detail = http.get()
+                .uri("/api/properties/{id}", created.id())
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult();
+        assertThat(detail.getResponseBody()).isNotNull();
+        assertThat(detail.getResponseBody().amenities())
+                .extracting(AmenityResponse::id)
+                .containsExactly(parking.getId(), wifi.getId());
+        assertThat(detail.getResponseHeaders().getETag()).isEqualTo("\"2\"");
+    }
+
+    private int joinCount(UUID propertyId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT count(*) FROM property_amenities WHERE property_id = ?",
+                Integer.class, propertyId);
+        assertThat(count).isNotNull();
+        return count;
+    }
+
+    private boolean replaceAmenitiesInParallel(UUID propertyId, UUID amenityId, CyclicBarrier barrier) {
+        try {
+            transactions.executeWithoutResult(status -> {
+                Property property = properties.findById(propertyId).orElseThrow();
+                Amenity amenity = amenities.findById(amenityId).orElseThrow();
+                assertThat(property.getVersion()).isZero();
+                property.replaceAmenities(List.of(amenity));
+
+                try {
+                    barrier.await(10, TimeUnit.SECONDS);
+                } catch (Exception ex) {
+                    throw new AssertionError("Both transactions must read the same version before flushing", ex);
+                }
+
+                properties.flush();
+            });
+            return true;
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            return false;
+        }
+    }
+
+    private RestTestClient.ResponseSpec putAmenities(
+            String hostToken, UUID propertyId, String etag, List<UUID> amenityIds
+    ) {
+        return http.put()
+                .uri("/api/properties/{id}/amenities", propertyId)
+                .headers(headers -> {
+                    headers.setBearerAuth(hostToken);
+                    if (etag != null) {
+                        headers.set(HttpHeaders.IF_MATCH, etag);
+                    }
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("amenityIds", amenityIds))
+                .exchange();
+    }
 
     @Test
     void inactiveListingIsPrivateUntilActivatedAndHiddenAfterDeletion() {

@@ -10,6 +10,7 @@ import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,8 +57,10 @@ class PropertyTest {
         assertThatThrownBy(() -> Property.create(null, validDetails()))
                 .isInstanceOf(InvalidDomainArgumentException.class);
 
-        assertThatThrownBy(() -> Property.create(HOST_ID, null))
-                .isInstanceOf(InvalidDomainArgumentException.class);
+        assertThatThrownBy(() -> {
+            //noinspection DataFlowIssue
+            Property.create(HOST_ID, null);
+        }).isInstanceOf(InvalidDomainArgumentException.class);
     }
 
     @Test
@@ -348,6 +351,26 @@ class PropertyTest {
         assertThat(property.getTitle()).isEqualTo("Studio apartment");
         assertThat(property.getHostId()).isEqualTo(HOST_ID);
         assertThat(property.getStatus()).isEqualTo(PropertyStatus.INACTIVE);
+    }
+
+    @Test
+    void amenityCollectionCannotBeChangedOutsideAggregate() {
+        Property property = property();
+
+        property.replaceAmenities(List.of());
+        assertThatThrownBy(() -> property.getAmenities().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> property.replaceAmenities(null))
+                .isInstanceOf(InvalidDomainArgumentException.class);
+
+        property.block();
+        assertThatThrownBy(() -> property.replaceAmenities(List.of()))
+                .isInstanceOf(InvalidDomainTransitionException.class);
+
+        Property deleted = property();
+        deleted.delete();
+        assertThatThrownBy(() -> deleted.replaceAmenities(List.of()))
+                .isInstanceOf(EntityAlreadyDeletedException.class);
     }
 
     private static Property property() {

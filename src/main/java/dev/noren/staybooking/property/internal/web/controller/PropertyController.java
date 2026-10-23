@@ -8,6 +8,7 @@ import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch
 import dev.noren.staybooking.property.internal.web.mapper.PropertyWebMapper;
 import dev.noren.staybooking.property.internal.web.request.ChangeHostRequest;
 import dev.noren.staybooking.property.internal.web.request.CreatePropertyRequest;
+import dev.noren.staybooking.property.internal.web.request.ReplacePropertyAmenitiesRequest;
 import dev.noren.staybooking.property.internal.web.request.UpdatePropertyRequest;
 import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
 import jakarta.validation.Valid;
@@ -69,6 +70,18 @@ public class PropertyController {
         PropertyDetailsPatch details = mapper.toDetails(request);
         PropertyResult property = service.update(id, details, expectedVersion);
         return propertyResponse(property);
+    }
+
+    @PutMapping("/{id}/amenities")
+    @PreAuthorize("hasRole('HOST')")
+    public ResponseEntity<Void> replaceAmenities(
+            @PathVariable UUID id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+            @Valid @RequestBody ReplacePropertyAmenitiesRequest request
+    ) {
+        long expectedVersion = versionHeader.parseIfMatch(ifMatch);
+        long version = service.replaceAmenities(id, request.amenityIds(), expectedVersion);
+        return voidResponse(version);
     }
 
     @DeleteMapping("/{id}")

@@ -39,4 +39,16 @@ public class Amenity extends BaseEntity {
 
         return name;
     }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) return true;
+        if (!(other instanceof Amenity amenity)) return false;
+        return getId() != null && getId().equals(amenity.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return Amenity.class.hashCode();
+    }
 }

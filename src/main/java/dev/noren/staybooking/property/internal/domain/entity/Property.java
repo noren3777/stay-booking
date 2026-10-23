@@ -14,6 +14,10 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -73,6 +77,15 @@ public class Property extends SoftDeletedEntity {
     @Column(nullable = false)
     private Long version;
 
+    @Getter(AccessLevel.NONE)
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "property_amenities",
+            joinColumns = @JoinColumn(name = "property_id"),
+            inverseJoinColumns = @JoinColumn(name = "amenity_id")
+    )
+    private Set<Amenity> amenities = new HashSet<>();
+
     public static Property create(UUID hostId, CreatePropertyDetails details) {
         if (details == null) {
             throw new InvalidDomainArgumentException("details cannot be null");
@@ -130,6 +143,90 @@ public class Property extends SoftDeletedEntity {
         address = newAddress;
         maxGuests = newMaxGuests;
         pricePerNight = newPricePerNight;
+    }
+
+    public void replaceAmenities(Collection<Amenity> newAmenities) {
+        requireNotDeleted();
+        requireNotBlocked();
+
+        if (newAmenities == null) {
+            throw new InvalidDomainArgumentException("amenities must not be null");
+        }
+
+        Set<UUID> ids = new HashSet<>();
+        for (Amenity amenity : newAmenities) {
+            if (amenity == null || amenity.getId() == null || !ids.add(amenity.getId())) {
+                throw new InvalidDomainArgumentException("amenities must contain distinct persisted values");
+            }
+        }
+
+        Set<UUID> currentIds = new HashSet<>();
+        for (Amenity amenity : amenities) {
+            currentIds.add(amenity.getId());
+        }
+        if (currentIds.equals(ids)) {
+            return;
+        }
+
+        amenities.clear();
+        amenities.addAll(newAmenities);
+    }
+
+    public void changeHost(UUID id) {
+        requireNotDeleted();
+
+        UUID newHostId = validatedHostId(id);
+        if (newHostId.equals(hostId)) {
+            throw new InvalidDomainArgumentException("host id must not be the same");
+        }
+
+        hostId = newHostId;
+    }
+
+    public void activate() {
+        requireNotDeleted();
+
+        if (status != PropertyStatus.INACTIVE) {
+            throw new InvalidDomainTransitionException("Only inactive property can be activated");
+        }
+
+        status = PropertyStatus.ACTIVE;
+    }
+
+    public void deactivate() {
+        requireNotDeleted();
+
+        if (status != PropertyStatus.ACTIVE) {
+            throw new InvalidDomainTransitionException("Only active property can be deactivated");
+        }
+
+        status = PropertyStatus.INACTIVE;
+    }
+
+    public void block() {
+        requireNotDeleted();
+
+        if (status.isBlocked()) {
+            throw new InvalidDomainTransitionException("Only available property can be blocked");
+        }
+
+        status = PropertyStatus.BLOCKED;
+    }
+
+    public void unblock() {
+        requireNotDeleted();
+
+        if (!status.isBlocked()) {
+            throw new InvalidDomainTransitionException("Only blocked property can be unblocked");
+        }
+
+        status = PropertyStatus.INACTIVE;
+    }
+
+    @Override
+    public void delete() {
+        requireNotBlocked();
+        super.delete();
     }
 
     private String normalizeTitle(String title) {
@@ -221,61 +318,8 @@ public class Property extends SoftDeletedEntity {
         return id;
     }
 
-    public void changeHost(UUID id) {
-        requireNotDeleted();
-
-        UUID newHostId = validatedHostId(id);
-        if (newHostId.equals(hostId)) {
-            throw new InvalidDomainArgumentException("host id must not be the same");
-        }
-
-        hostId = newHostId;
-    }
-
-    public void activate() {
-        requireNotDeleted();
-
-        if (status != PropertyStatus.INACTIVE) {
-            throw new InvalidDomainTransitionException("Only inactive property can be activated");
-        }
-
-        status = PropertyStatus.ACTIVE;
-    }
-
-    public void deactivate() {
-        requireNotDeleted();
-
-        if (status != PropertyStatus.ACTIVE) {
-            throw new InvalidDomainTransitionException("Only active property can be deactivated");
-        }
-
-        status = PropertyStatus.INACTIVE;
-    }
-
-    public void block() {
-        requireNotDeleted();
-
-        if (status.isBlocked()) {
-            throw new InvalidDomainTransitionException("Only available property can be blocked");
-        }
-
-        status = PropertyStatus.BLOCKED;
-    }
-
-    public void unblock() {
-        requireNotDeleted();
-
-        if (!status.isBlocked()) {
-            throw new InvalidDomainTransitionException("Only blocked property can be unblocked");
-        }
-
-        status = PropertyStatus.INACTIVE;
-    }
-
-    @Override
-    public void delete() {
-        requireNotBlocked();
-        super.delete();
+    public Set<Amenity> getAmenities() {
+        return Collections.unmodifiableSet(amenities);
     }
 
     public boolean hostIsOwner(UUID id) {
