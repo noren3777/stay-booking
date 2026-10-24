@@ -21,6 +21,7 @@ public record PropertyResponse(
         Integer maxGuests,
         PropertyStatus status,
         Long version,
-        List<AmenityResponse> amenities
+        List<AmenityResponse> amenities,
+        List<PropertyImageResponse> images
 ) {
 }

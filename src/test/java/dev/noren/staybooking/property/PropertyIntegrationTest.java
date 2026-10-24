@@ -1,17 +1,22 @@
 package dev.noren.staybooking.property;
 
+import dev.noren.staybooking.bootstrap.exception.EntityVersionConflictException;
 import dev.noren.staybooking.identity.internal.application.result.TokenResult;
 import dev.noren.staybooking.identity.internal.domain.entity.User;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
 import dev.noren.staybooking.identity.internal.persistence.UserRepository;
+import dev.noren.staybooking.property.internal.application.service.PropertyService;
 import dev.noren.staybooking.property.internal.domain.entity.Amenity;
 import dev.noren.staybooking.property.internal.domain.entity.Property;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import dev.noren.staybooking.property.internal.persistence.repository.AmenityRepository;
 import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
 import dev.noren.staybooking.property.internal.web.response.AmenityResponse;
+import dev.noren.staybooking.property.internal.web.response.PropertyImageResponse;
 import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -21,7 +26,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -69,6 +77,7 @@ class PropertyIntegrationTest {
     private final UserRepository users;
     private final AmenityRepository amenities;
     private final PropertyRepository properties;
+    private final PropertyService propertyService;
     private final JdbcTemplate jdbc;
     private final EntityManager entityManager;
     private final TransactionTemplate transactions;
@@ -268,6 +277,247 @@ class PropertyIntegrationTest {
                 .extracting(AmenityResponse::id)
                 .containsExactly(parking.getId(), wifi.getId());
         assertThat(detail.getResponseHeaders().getETag()).isEqualTo("\"2\"");
+    }
+
+    @Test
+    void imageGalleryPersistsOrderAndPrimaryAndRemovesOrphans() {
+        String hostToken = createUserAndLogin(UserRole.HOST);
+        CreatedProperty created = createProperty(hostToken);
+        List<Map<String, Object>> firstGallery = List.of(
+                image("https://example.com/front.jpg", false),
+                image("https://example.com/room.jpg", true)
+        );
+
+        String firstEtag = putImages(hostToken, created.id(), created.etag(), firstGallery)
+                .expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        assertThat(firstEtag).isEqualTo("\"1\"");
+        assertThat(jdbc.queryForList(
+                "SELECT sort_order FROM property_images WHERE property_id = ? ORDER BY sort_order",
+                Integer.class, created.id()
+        )).containsExactly(0, 1);
+
+        var management = http.get()
+                .uri("/api/properties/{id}/management", created.id())
+                .headers(headers -> headers.setBearerAuth(hostToken))
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult();
+        assertThat(management.getResponseBody()).isNotNull();
+        assertThat(management.getResponseBody().images())
+                .extracting(PropertyImageResponse::url)
+                .containsExactly("https://example.com/front.jpg", "https://example.com/room.jpg");
+        assertThat(management.getResponseBody().images())
+                .extracting(PropertyImageResponse::primary)
+                .containsExactly(false, true);
+        assertThat(management.getResponseBody().images())
+                .extracting(PropertyImageResponse::sortOrder)
+                .containsExactly(0, 1);
+        assertThat(management.getResponseHeaders().getETag()).isEqualTo(firstEtag);
+
+        List<UUID> originalImageIds = jdbc.queryForList(
+                "SELECT id FROM property_images WHERE property_id = ? ORDER BY sort_order",
+                UUID.class, created.id()
+        );
+
+        String repeatedEtag = putImages(hostToken, created.id(), firstEtag, firstGallery)
+                .expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        assertThat(repeatedEtag).isEqualTo(firstEtag);
+        assertThat(jdbc.queryForList(
+                "SELECT id FROM property_images WHERE property_id = ? ORDER BY sort_order",
+                UUID.class, created.id()
+        )).containsExactlyElementsOf(originalImageIds);
+
+        UUID removedImageId = jdbc.queryForObject(
+                "SELECT id FROM property_images WHERE property_id = ? AND sort_order = 0",
+                UUID.class, created.id()
+        );
+        String replacedEtag = putImages(hostToken, created.id(), firstEtag,
+                List.of(image("https://example.com/room.jpg", true),
+                        image("https://example.com/balcony.jpg", false)))
+                .expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        assertThat(replacedEtag).isEqualTo("\"2\"");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM property_images WHERE id = ?", Integer.class, removedImageId
+        )).isZero();
+
+        String clearedEtag = putImages(hostToken, created.id(), replacedEtag, List.of())
+                .expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        assertThat(clearedEtag).isEqualTo("\"3\"");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM property_images WHERE property_id = ?", Integer.class, created.id()
+        )).isZero();
+    }
+
+    @Test
+    void simultaneousImageReplacementsCannotBothCommit() throws Exception {
+        User host = createUser(UserRole.HOST);
+        String hostToken = login(host);
+        CreatedProperty created = createProperty(hostToken);
+        String frontUrl = "https://example.com/front.jpg";
+        String roomUrl = "https://example.com/room.jpg";
+        var barrier = new CyclicBarrier(2);
+        var executor = Executors.newFixedThreadPool(2);
+
+        Callable<Boolean> selectFront = () ->
+                replaceImagesInParallel(created.id(), host.getId(), frontUrl, barrier);
+        Callable<Boolean> selectRoom = () ->
+                replaceImagesInParallel(created.id(), host.getId(), roomUrl, barrier);
+
+        boolean frontCommitted;
+        boolean roomCommitted;
+        try {
+            var first = executor.submit(selectFront);
+            var second = executor.submit(selectRoom);
+            frontCommitted = first.get(20, TimeUnit.SECONDS);
+            roomCommitted = second.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(frontCommitted).isNotEqualTo(roomCommitted);
+        assertThat(jdbc.queryForList(
+                "SELECT url FROM property_images WHERE property_id = ?",
+                String.class, created.id()
+        )).containsExactly(frontCommitted ? frontUrl : roomUrl);
+
+        var detail = http.get()
+                .uri("/api/properties/{id}/management", created.id())
+                .headers(headers -> headers.setBearerAuth(hostToken))
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult();
+        assertThat(detail.getResponseBody()).isNotNull();
+        assertThat(detail.getResponseBody().version()).isEqualTo(1L);
+        assertThat(detail.getResponseHeaders().getETag()).isEqualTo("\"1\"");
+        assertThat(detail.getResponseBody().images())
+                .extracting(PropertyImageResponse::url)
+                .containsExactly(frontCommitted ? frontUrl : roomUrl);
+    }
+
+    @Test
+    void imageChangesRequireOwnerCurrentVersionAndValidGallery() {
+        String ownerToken = createUserAndLogin(UserRole.HOST);
+        String otherHostToken = createUserAndLogin(UserRole.HOST);
+        String adminToken = createUserAndLogin(UserRole.ADMIN);
+        CreatedProperty created = createProperty(ownerToken);
+        List<Map<String, Object>> gallery = List.of(image("https://example.com/front.jpg", true));
+
+        putImages(otherHostToken, created.id(), created.etag(), gallery)
+                .expectStatus().isForbidden();
+        putImages(ownerToken, created.id(), null, gallery)
+                .expectStatus().isEqualTo(428);
+        putImages(ownerToken, created.id(), created.etag(), List.of(image("relative.jpg", true)))
+                .expectStatus().isBadRequest();
+        putImages(ownerToken, created.id(), created.etag(), List.of(image("https://example.com/a.jpg", false)))
+                .expectStatus().isBadRequest();
+        putImages(ownerToken, created.id(), created.etag(), List.of(
+                image("https://example.com/a.jpg", true), image("https://example.com/b.jpg", true)))
+                .expectStatus().isBadRequest();
+        http.put()
+                .uri("/api/properties/{id}/images", created.id())
+                .headers(headers -> {
+                    headers.setBearerAuth(ownerToken);
+                    headers.set(HttpHeaders.IF_MATCH, created.etag());
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("[{\"url\":\"https://example.com/a.jpg\",\"primary\":null}]")
+                .exchange().expectStatus().isBadRequest();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM property_images WHERE property_id = ?", Integer.class, created.id()
+        )).isZero();
+
+        String imageEtag = putImages(ownerToken, created.id(), created.etag(), gallery)
+                .expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        putImages(ownerToken, created.id(), created.etag(), List.of())
+                .expectStatus().isEqualTo(412);
+
+        String activeEtag = http.patch()
+                .uri("/api/properties/{id}/activate", created.id())
+                .headers(headers -> {
+                    headers.setBearerAuth(ownerToken);
+                    headers.set(HttpHeaders.IF_MATCH, imageEtag);
+                })
+                .exchange().expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        var publicDetail = http.get()
+                .uri("/api/properties/{id}", created.id())
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult();
+        assertThat(publicDetail.getResponseBody()).isNotNull();
+        assertThat(publicDetail.getResponseBody().images())
+                .extracting(PropertyImageResponse::url)
+                .containsExactly("https://example.com/front.jpg");
+
+        String blockedEtag = http.patch()
+                .uri("/api/properties/{id}/block", created.id())
+                .headers(headers -> {
+                    headers.setBearerAuth(adminToken);
+                    headers.set(HttpHeaders.IF_MATCH, activeEtag);
+                })
+                .exchange().expectStatus().isNoContent()
+                .returnResult(String.class).getResponseHeaders().getETag();
+        putImages(ownerToken, created.id(), blockedEtag, List.of())
+                .expectStatus().isEqualTo(409);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM property_images WHERE property_id = ?", Integer.class, created.id()
+        )).isEqualTo(1);
+    }
+
+    private static Map<String, Object> image(String url, boolean primary) {
+        return Map.of("url", url, "primary", primary);
+    }
+
+    private boolean replaceImagesInParallel(UUID propertyId, UUID hostId, String url, CyclicBarrier barrier) {
+        Jwt jwt = Jwt.withTokenValue("concurrent-image-test")
+                .header("alg", "none")
+                .subject(hostId.toString())
+                .claim("role", UserRole.HOST.name())
+                .build();
+        var securityContext = SecurityContextHolder.createEmptyContext();
+        securityContext.setAuthentication(new JwtAuthenticationToken(jwt));
+        SecurityContextHolder.setContext(securityContext);
+
+        try {
+            transactions.executeWithoutResult(status -> {
+                Property property = properties.findById(propertyId).orElseThrow();
+                assertThat(property.getVersion()).isZero();
+                assertThat(property.getImages()).isEmpty();
+
+                try {
+                    barrier.await(10, TimeUnit.SECONDS);
+                } catch (Exception ex) {
+                    throw new AssertionError("Both transactions must read the same gallery and version", ex);
+                }
+
+                long version = propertyService.replaceImages(propertyId,
+                        List.of(new PropertyImageDetails(url, true)), 0);
+                assertThat(version).isEqualTo(1L);
+            });
+            return true;
+        } catch (EntityVersionConflictException | ObjectOptimisticLockingFailureException | OptimisticLockException ex) {
+            return false;
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    private RestTestClient.ResponseSpec putImages(
+            String hostToken, UUID propertyId, String etag, List<Map<String, Object>> images
+    ) {
+        return http.put()
+                .uri("/api/properties/{id}/images", propertyId)
+                .headers(headers -> {
+                    headers.setBearerAuth(hostToken);
+                    if (etag != null) {
+                        headers.set(HttpHeaders.IF_MATCH, etag);
+                    }
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(images)
+                .exchange();
     }
 
     private int joinCount(UUID propertyId) {

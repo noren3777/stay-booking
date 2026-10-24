@@ -6,6 +6,7 @@ import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionExceptio
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.AccessLevel;
@@ -14,9 +15,11 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -85,6 +88,11 @@ public class Property extends SoftDeletedEntity {
             inverseJoinColumns = @JoinColumn(name = "amenity_id")
     )
     private Set<Amenity> amenities = new HashSet<>();
+
+    @Getter(AccessLevel.NONE)
+    @OneToMany(mappedBy = "property", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("sortOrder ASC")
+    private List<PropertyImage> images = new ArrayList<>();
 
     public static Property create(UUID hostId, CreatePropertyDetails details) {
         if (details == null) {
@@ -170,6 +178,59 @@ public class Property extends SoftDeletedEntity {
 
         amenities.clear();
         amenities.addAll(newAmenities);
+    }
+
+    public boolean replaceImages(List<PropertyImageDetails> newImages) {
+        requireNotDeleted();
+        requireNotBlocked();
+
+        List<PropertyImage> replacements = createImages(newImages);
+        if (hasSameImages(replacements)) {
+            return false;
+        }
+
+        images.clear();
+        images.addAll(replacements);
+        return true;
+    }
+
+    private List<PropertyImage> createImages(List<PropertyImageDetails> newImages) {
+        if (newImages == null) {
+            throw new InvalidDomainArgumentException("images must not be null");
+        }
+
+        List<PropertyImage> replacements = new ArrayList<>(newImages.size());
+        int primaryCount = 0;
+        for (int index = 0; index < newImages.size(); index++) {
+            PropertyImageDetails details = newImages.get(index);
+            if (details == null) {
+                throw new InvalidDomainArgumentException("images must not contain null values");
+            }
+            PropertyImage image = PropertyImage.create(this, details.url(), index, details.primary());
+            replacements.add(image);
+            if (image.isPrimary()) {
+                primaryCount++;
+            }
+        }
+        if (!replacements.isEmpty() && primaryCount != 1) {
+            throw new InvalidDomainArgumentException("images must contain exactly one primary image");
+        }
+        return replacements;
+    }
+
+    private boolean hasSameImages(List<PropertyImage> replacements) {
+        if (images.size() != replacements.size()) {
+            return false;
+        }
+        for (int index = 0; index < images.size(); index++) {
+            PropertyImage current = images.get(index);
+            PropertyImage replacement = replacements.get(index);
+            if (!current.getUrl().equals(replacement.getUrl())
+                    || current.isPrimary() != replacement.isPrimary()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void changeHost(UUID id) {
@@ -320,6 +381,10 @@ public class Property extends SoftDeletedEntity {
 
     public Set<Amenity> getAmenities() {
         return Collections.unmodifiableSet(amenities);
+    }
+
+    public List<PropertyImage> getImages() {
+        return Collections.unmodifiableList(images);
     }
 
     public boolean hostIsOwner(UUID id) {

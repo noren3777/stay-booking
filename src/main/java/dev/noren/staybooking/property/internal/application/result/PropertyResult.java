@@ -21,6 +21,7 @@ public record PropertyResult(
         Integer maxGuests,
         PropertyStatus status,
         Long version,
-        List<AmenityResult> amenities
+        List<AmenityResult> amenities,
+        List<PropertyImageResult> images
 ) {
 }

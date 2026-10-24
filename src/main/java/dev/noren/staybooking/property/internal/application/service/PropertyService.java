@@ -14,8 +14,11 @@ import dev.noren.staybooking.property.internal.domain.entity.Property;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import dev.noren.staybooking.property.internal.persistence.repository.AmenityRepository;
 import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +38,7 @@ public class PropertyService {
     private final PropertyAuthorization authorization;
     private final IdentityApi identityApi;
     private final PropertyApplicationMapper mapper;
+    private final EntityManager entityManager;
 
     private Property getById(UUID id) {
         return repository.findById(id)
@@ -89,6 +93,18 @@ public class PropertyService {
         }
 
         property.replaceAmenities(amenities);
+
+        repository.flush();
+        return property.getVersion();
+    }
+
+    public long replaceImages(UUID id, List<PropertyImageDetails> images, long expectedVersion) {
+        Property property = getPropertyManagedByCurrentHost(id);
+        requireVersion(property, expectedVersion);
+
+        if (property.replaceImages(images)) {
+            entityManager.lock(property, LockModeType.PESSIMISTIC_FORCE_INCREMENT);
+        }
 
         repository.flush();
         return property.getVersion();

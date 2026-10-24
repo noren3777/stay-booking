@@ -1,15 +1,13 @@
 package dev.noren.staybooking.property.internal.web.controller;
 
 import dev.noren.staybooking.bootstrap.web.parser.VersionHeader;
-import dev.noren.staybooking.property.internal.application.service.PropertyService;
 import dev.noren.staybooking.property.internal.application.result.PropertyResult;
+import dev.noren.staybooking.property.internal.application.service.PropertyService;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import dev.noren.staybooking.property.internal.web.mapper.PropertyWebMapper;
-import dev.noren.staybooking.property.internal.web.request.ChangeHostRequest;
-import dev.noren.staybooking.property.internal.web.request.CreatePropertyRequest;
-import dev.noren.staybooking.property.internal.web.request.ReplacePropertyAmenitiesRequest;
-import dev.noren.staybooking.property.internal.web.request.UpdatePropertyRequest;
+import dev.noren.staybooking.property.internal.web.request.*;
 import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 @RequestMapping("/api/properties")
@@ -81,6 +80,21 @@ public class PropertyController {
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
         long version = service.replaceAmenities(id, request.amenityIds(), expectedVersion);
+        return voidResponse(version);
+    }
+
+    @PutMapping("/{id}/images")
+    @PreAuthorize("hasRole('HOST')")
+    public ResponseEntity<Void> replaceImages(
+            @PathVariable UUID id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+            @RequestBody List<@Valid PropertyImageRequest> request
+    ) {
+        long expectedVersion = versionHeader.parseIfMatch(ifMatch);
+
+        List<PropertyImageDetails> images = mapper.toImageDetails(request);
+        long version = service.replaceImages(id, images, expectedVersion);
+
         return voidResponse(version);
     }
 

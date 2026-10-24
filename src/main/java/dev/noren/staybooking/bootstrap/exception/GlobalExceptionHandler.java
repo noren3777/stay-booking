@@ -2,6 +2,7 @@ package dev.noren.staybooking.bootstrap.exception;
 
 import dev.noren.staybooking.bootstrap.exception.dto.ValidationError;
 import dev.noren.staybooking.bootstrap.web.exception.PreconditionRequiredException;
+import jakarta.persistence.OptimisticLockException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -67,7 +68,7 @@ public class GlobalExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.PRECONDITION_REQUIRED, ex.getMessage());
     }
 
-    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, OptimisticLockException.class})
     ProblemDetail handleOptimisticLock() {
         return ProblemDetail.forStatusAndDetail(
                 HttpStatus.PRECONDITION_FAILED,

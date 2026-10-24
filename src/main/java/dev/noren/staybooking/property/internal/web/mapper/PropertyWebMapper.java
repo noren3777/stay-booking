@@ -4,11 +4,15 @@ import dev.noren.staybooking.bootstrap.web.mapper.JsonNullablePatchMapper;
 import dev.noren.staybooking.property.internal.application.result.PropertyResult;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import dev.noren.staybooking.property.internal.web.request.CreatePropertyRequest;
+import dev.noren.staybooking.property.internal.web.request.PropertyImageRequest;
 import dev.noren.staybooking.property.internal.web.request.UpdatePropertyRequest;
 import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
 import org.mapstruct.InjectionStrategy;
 import org.mapstruct.Mapper;
+
+import java.util.List;
 
 @Mapper(
         componentModel = "spring",
@@ -21,4 +25,6 @@ public interface PropertyWebMapper {
     PropertyDetailsPatch toDetails(UpdatePropertyRequest request);
 
     CreatePropertyDetails toDetails(CreatePropertyRequest request);
+
+    List<PropertyImageDetails> toImageDetails(List<PropertyImageRequest> images);
 }
