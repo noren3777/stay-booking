@@ -1,6 +1,9 @@
 package dev.noren.staybooking.property.internal.web.controller;
 
 import dev.noren.staybooking.bootstrap.web.parser.VersionHeader;
+import dev.noren.staybooking.bootstrap.web.request.PaginationRequest;
+import dev.noren.staybooking.property.internal.application.input.PropertyCatalogCriteria;
+import dev.noren.staybooking.property.internal.application.result.PropertyCatalogResult;
 import dev.noren.staybooking.property.internal.application.result.PropertyResult;
 import dev.noren.staybooking.property.internal.application.service.PropertyService;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
@@ -9,6 +12,7 @@ import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails
 import dev.noren.staybooking.property.internal.web.mapper.PropertyWebMapper;
 import dev.noren.staybooking.property.internal.web.request.*;
 import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
+import dev.noren.staybooking.property.internal.web.response.PropertyCatalogResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +33,16 @@ public class PropertyController {
     private final PropertyService service;
     private final PropertyWebMapper mapper;
     private final VersionHeader versionHeader;
+
+    @GetMapping
+    public PropertyCatalogResponse list(
+            @Valid @ModelAttribute PropertyFilterRequest filters,
+            @Valid @ModelAttribute PaginationRequest pagination
+    ) {
+        PropertyCatalogCriteria criteria = mapper.toCriteria(filters, pagination);
+        PropertyCatalogResult catalog = service.list(criteria);
+        return mapper.toResponse(catalog);
+    }
 
     @GetMapping("/{id}")
     public ResponseEntity<PropertyResponse> getById(@PathVariable UUID id) {

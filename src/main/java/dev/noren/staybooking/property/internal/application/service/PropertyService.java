@@ -3,12 +3,16 @@ package dev.noren.staybooking.property.internal.application.service;
 import dev.noren.staybooking.bootstrap.exception.EntityNotFoundException;
 import dev.noren.staybooking.bootstrap.exception.EntityVersionConflictException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
+import dev.noren.staybooking.bootstrap.persistence.mapper.PaginationPersistenceMapper;
 import dev.noren.staybooking.identity.api.IdentityApi;
 import dev.noren.staybooking.identity.api.view.ActorRole;
 import dev.noren.staybooking.identity.api.view.ActorView;
 import dev.noren.staybooking.property.internal.application.authorization.PropertyAuthorization;
+import dev.noren.staybooking.property.internal.application.input.PropertyCatalogCriteria;
 import dev.noren.staybooking.property.internal.application.mapper.PropertyApplicationMapper;
+import dev.noren.staybooking.property.internal.application.result.PropertyCatalogResult;
 import dev.noren.staybooking.property.internal.application.result.PropertyResult;
+import dev.noren.staybooking.property.internal.application.result.PropertySummaryResult;
 import dev.noren.staybooking.property.internal.domain.entity.Amenity;
 import dev.noren.staybooking.property.internal.domain.entity.Property;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
@@ -17,9 +21,12 @@ import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch
 import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import dev.noren.staybooking.property.internal.persistence.repository.AmenityRepository;
 import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
+import dev.noren.staybooking.property.internal.persistence.specification.PropertySpecifications;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,11 +45,26 @@ public class PropertyService {
     private final PropertyAuthorization authorization;
     private final IdentityApi identityApi;
     private final PropertyApplicationMapper mapper;
+    private final PaginationPersistenceMapper paginationMapper;
     private final EntityManager entityManager;
 
     private Property getById(UUID id) {
         return repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Property not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public PropertyCatalogResult list(PropertyCatalogCriteria criteria) {
+        PropertyStatus status = criteria.resolvedStatus();
+        authorization.requireCatalogStatusAccess(status);
+
+        Pageable pageable = paginationMapper.toPageable(criteria.resolvedPagination());
+        Page<PropertySummaryResult> page = repository.findBy(
+                PropertySpecifications.forCatalog(criteria.filters(), status),
+                query -> query.as(PropertySummaryResult.class).page(pageable)
+        );
+
+        return mapper.toCatalogResult(page);
     }
 
     @Transactional(readOnly = true)

@@ -53,6 +53,11 @@ public class GlobalExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    @ExceptionHandler(InvalidPaginationException.class)
+    ProblemDetail handleInvalidPagination(InvalidPaginationException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
     @ExceptionHandler(InvalidDomainTransitionException.class)
     ProblemDetail handleInvalidDomainTransition(InvalidDomainTransitionException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());

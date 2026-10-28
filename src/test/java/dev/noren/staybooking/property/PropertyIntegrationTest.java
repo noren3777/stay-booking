@@ -9,16 +9,19 @@ import dev.noren.staybooking.property.internal.application.service.PropertyServi
 import dev.noren.staybooking.property.internal.domain.entity.Amenity;
 import dev.noren.staybooking.property.internal.domain.entity.Property;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
+import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import dev.noren.staybooking.property.internal.persistence.repository.AmenityRepository;
 import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
-import dev.noren.staybooking.property.internal.web.response.AmenityResponse;
-import dev.noren.staybooking.property.internal.web.response.PropertyImageResponse;
-import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
+import dev.noren.staybooking.property.internal.web.response.*;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -37,8 +40,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.math.BigDecimal;
+import java.net.URI;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -58,7 +64,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {
                 "app.jwt.secret-base64=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
                 "app.jwt.issuer=property-integration-test",
-                "app.jwt.ttl=PT1H"
+                "app.jwt.ttl=PT1H",
+                "spring.jpa.properties.hibernate.generate_statistics=true"
         }
 )
 class PropertyIntegrationTest {
@@ -82,6 +89,236 @@ class PropertyIntegrationTest {
     private final EntityManager entityManager;
     private final TransactionTemplate transactions;
     private final PasswordEncoder encoder;
+    private final EntityManagerFactory entityManagerFactory;
+
+    @Test
+    void anonymousCatalogRequestReturnsEmptyPageWithMetadata() {
+        String unknownCity = "missing-" + UUID.randomUUID();
+        PropertyCatalogResponse page = http.get()
+                .uri("/api/properties?city=" + unknownCity + "&page=1&size=5&sort=title,asc")
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyCatalogResponse.class).returnResult().getResponseBody();
+        assertThat(page).isNotNull();
+        assertThat(page.items()).isEmpty();
+        assertThat(page.page()).isEqualTo(1);
+        assertThat(page.size()).isEqualTo(5);
+        assertThat(page.totalElements()).isZero();
+        assertThat(page.totalPages()).isZero();
+
+        http.get().uri("/api/properties?city=" + unknownCity
+                        + "&sort=pricePerNight,asc&sort=title,desc")
+                .exchange().expectStatus().isOk();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "city=%20%20%20",
+            "minPrice=0",
+            "minPrice=10000000000.00",
+            "minPrice=1.001",
+            "maxPrice=-1",
+            "maxPrice=1.001",
+            "minPrice=200&maxPrice=100",
+            "minGuests=0",
+            "page=-1",
+            "page=21474837&size=100",
+            "size=0",
+            "size=101",
+            "sort=unknown,asc",
+            "sort=title,up",
+            "sort=title,asc&sort=title,desc"
+    })
+    void invalidCatalogParametersReturnBadRequest(String query) {
+        http.get().uri(URI.create("/api/properties?" + query))
+                .exchange().expectStatus().isBadRequest();
+    }
+
+    @Test
+    void catalogAppliesIndividualFiltersAndIncludesBoundaryValues() {
+        String city = "Catalog-" + UUID.randomUUID();
+        UUID hostId = createUser(UserRole.HOST).getId();
+        Property cheapest = catalogProperty(hostId, city, "Cheapest", "0.01", 1, PropertyStatus.ACTIVE);
+        Property middle = catalogProperty(hostId, city, "Middle", "150.00", 4, PropertyStatus.ACTIVE);
+        Property mostExpensive = catalogProperty(hostId, city, "Most expensive", "9999999999.99", 10,
+                PropertyStatus.ACTIVE);
+
+        assertCatalogIds("?city=%20" + city.toUpperCase(Locale.ROOT) + "%20",
+                cheapest.getId(), middle.getId(), mostExpensive.getId());
+        assertCatalogIds("?city=" + city + "&minPrice=150.00", middle.getId(), mostExpensive.getId());
+        assertCatalogIds("?city=" + city + "&maxPrice=150.00", cheapest.getId(), middle.getId());
+        assertCatalogIds("?city=" + city + "&minGuests=4", middle.getId(), mostExpensive.getId());
+
+        assertCatalogIds("?city=" + city + "&minPrice=150.00&maxPrice=150.00", middle.getId());
+        assertCatalogIds("?city=" + city + "&maxPrice=0.01", cheapest.getId());
+        assertCatalogIds("?city=" + city + "&minPrice=9999999999.99", mostExpensive.getId());
+        assertCatalogIds("?city=" + city + "&minGuests=10", mostExpensive.getId());
+        assertCatalogIds("?city=" + city + "&minGuests=11");
+    }
+
+    @Test
+    void catalogFiltersByCityPriceCapacityAndStatus() {
+        String city = "Catalog-" + UUID.randomUUID();
+        UUID hostId = createUser(UserRole.HOST).getId();
+        Property cheap = catalogProperty(hostId, city, "Cheap", "100.00", 2, PropertyStatus.ACTIVE);
+        Property matching = catalogProperty(hostId, city, "Matching", "150.00", 4, PropertyStatus.ACTIVE);
+        Property expensive = catalogProperty(hostId, city, "Expensive", "200.00", 5, PropertyStatus.ACTIVE);
+        catalogProperty(hostId, city, "Inactive", "175.00", 4, PropertyStatus.INACTIVE);
+        catalogProperty(hostId, "Elsewhere-" + UUID.randomUUID(), "Elsewhere", "175.00", 4,
+                PropertyStatus.ACTIVE);
+
+        PropertyCatalogResponse byCity = catalog("?city=" + city.toUpperCase(Locale.ROOT));
+        assertThat(byCity.items()).extracting(PropertySummaryResponse::id)
+                .containsExactlyInAnyOrder(cheap.getId(), matching.getId(), expensive.getId());
+        assertThat(byCity.totalElements()).isEqualTo(3);
+
+        PropertyCatalogResponse filtered = catalog("?city=" + city
+                + "&minPrice=150.00&maxPrice=200.00&minGuests=4&sort=pricePerNight,asc");
+        assertThat(filtered.items()).extracting(PropertySummaryResponse::id)
+                .containsExactly(matching.getId(), expensive.getId());
+        assertThat(filtered.totalElements()).isEqualTo(2);
+        assertThat(filtered.totalPages()).isEqualTo(1);
+        var first = filtered.items().getFirst();
+        assertThat(first.createdAt()).isNotNull();
+        assertThat(first.title()).isEqualTo("Matching");
+        assertThat(first.country()).isEqualTo("Ukraine");
+        assertThat(first.city()).isEqualTo(city);
+        assertThat(first.pricePerNight()).isEqualByComparingTo("150.00");
+        assertThat(first.maxGuests()).isEqualTo(4);
+        assertThat(first.status()).isEqualTo(PropertyStatus.ACTIVE);
+    }
+
+    @Test
+    void catalogRestrictsNonPublicStatusesAndExcludesDeletedProperties() {
+        String city = "Catalog-" + UUID.randomUUID();
+        User host = createUser(UserRole.HOST);
+        UUID hostId = host.getId();
+        Property active = catalogProperty(hostId, city, "Active", "100.00", 2, PropertyStatus.ACTIVE);
+        Property inactive = catalogProperty(hostId, city, "Inactive", "110.00", 2, PropertyStatus.INACTIVE);
+        Property blocked = catalogProperty(hostId, city, "Blocked", "120.00", 2, PropertyStatus.BLOCKED);
+        Property deleted = Property.create(hostId, new CreatePropertyDetails(
+                "Deleted", null, "Ukraine", city, "Test address", new BigDecimal("130.00"), 2
+        ));
+        deleted.activate();
+        deleted.delete();
+        properties.saveAndFlush(deleted);
+
+        PropertyCatalogResponse publicPage = catalog("?city=" + city);
+        assertThat(publicPage.items()).extracting(PropertySummaryResponse::id).containsExactly(active.getId());
+        assertThat(publicPage.totalElements()).isEqualTo(1);
+
+        http.get().uri("/api/properties?city=" + city + "&status=INACTIVE")
+                .exchange().expectStatus().isUnauthorized();
+
+        String hostToken = login(host);
+        http.get().uri("/api/properties?city=" + city + "&status=INACTIVE")
+                .headers(headers -> headers.setBearerAuth(hostToken))
+                .exchange().expectStatus().isForbidden();
+
+        String adminToken = createUserAndLogin(UserRole.ADMIN);
+        PropertyCatalogResponse inactivePage = adminCatalog(adminToken,
+                "?city=" + city + "&status=INACTIVE");
+        assertThat(inactivePage.items()).extracting(PropertySummaryResponse::id).containsExactly(inactive.getId());
+
+        PropertyCatalogResponse blockedPage = adminCatalog(adminToken,
+                "?city=" + city + "&status=BLOCKED");
+        assertThat(blockedPage.items()).extracting(PropertySummaryResponse::id).containsExactly(blocked.getId());
+    }
+
+    @Test
+    void catalogPagesRemainStableWhenSortValuesAreEqual() {
+        String city = "Catalog-" + UUID.randomUUID();
+        UUID hostId = createUser(UserRole.HOST).getId();
+        catalogProperty(hostId, city, "First", "100.00", 2, PropertyStatus.ACTIVE);
+        catalogProperty(hostId, city, "Second", "100.00", 2, PropertyStatus.ACTIVE);
+        catalogProperty(hostId, city, "Third", "100.00", 2, PropertyStatus.ACTIVE);
+
+        String baseQuery = "?city=" + city + "&sort=pricePerNight,asc";
+        PropertyCatalogResponse all = catalog(baseQuery + "&size=3");
+        List<UUID> expectedOrder = all.items().stream().map(PropertySummaryResponse::id).toList();
+        assertThat(expectedOrder).hasSize(3).doesNotHaveDuplicates();
+
+        for (int page = 0; page < 3; page++) {
+            PropertyCatalogResponse result = catalog(baseQuery + "&size=1&page=" + page);
+            assertThat(result.items()).extracting(PropertySummaryResponse::id)
+                    .containsExactly(expectedOrder.get(page));
+            assertThat(result.totalElements()).isEqualTo(3);
+            assertThat(result.totalPages()).isEqualTo(3);
+        }
+
+        PropertyCatalogResponse beyondLastPage = catalog(baseQuery + "&size=1&page=3");
+        assertThat(beyondLastPage.items()).isEmpty();
+        assertThat(beyondLastPage.page()).isEqualTo(3);
+        assertThat(beyondLastPage.totalElements()).isEqualTo(3);
+        assertThat(beyondLastPage.totalPages()).isEqualTo(3);
+    }
+
+    @Test
+    void catalogQueryCountDoesNotGrowWithPageSize() {
+        String city = "Catalog-" + UUID.randomUUID();
+        UUID hostId = createUser(UserRole.HOST).getId();
+        Amenity amenity = amenities.saveAndFlush(Amenity.create("Wi-Fi-" + UUID.randomUUID()));
+
+        for (int index = 0; index < 6; index++) {
+            Property property = Property.create(hostId, new CreatePropertyDetails(
+                    "Property " + index, null, "Ukraine", city, "Test address",
+                    new BigDecimal("100.00"), 2
+            ));
+            property.activate();
+            property.replaceAmenities(List.of(amenity));
+            property.replaceImages(List.of(new PropertyImageDetails(
+                    "https://example.com/property-" + index + ".jpg", true
+            )));
+            properties.saveAndFlush(property);
+        }
+
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        PropertyCatalogResponse smallPage = catalog("?city=" + city + "&size=2");
+        long smallPageStatements = statistics.getPrepareStatementCount();
+
+        statistics.clear();
+        PropertyCatalogResponse largePage = catalog("?city=" + city + "&size=5");
+        long largePageStatements = statistics.getPrepareStatementCount();
+
+        assertThat(smallPage.items()).hasSize(2);
+        assertThat(largePage.items()).hasSize(5);
+        assertThat(largePage.totalElements()).isEqualTo(6);
+        assertThat(smallPageStatements).isBetween(1L, 2L);
+        assertThat(largePageStatements).isEqualTo(smallPageStatements);
+    }
+
+    @Test
+    void detailWithPopulatedRelationsUsesBoundedQueries() {
+        UUID hostId = createUser(UserRole.HOST).getId();
+        Property property = Property.create(hostId, new CreatePropertyDetails(
+                "Property with relations", null, "Ukraine", "Kyiv", "Test address",
+                new BigDecimal("100.00"), 2
+        ));
+        property.activate();
+        property.replaceAmenities(List.of(
+                amenities.saveAndFlush(Amenity.create("Wi-Fi-" + UUID.randomUUID())),
+                amenities.saveAndFlush(Amenity.create("Parking-" + UUID.randomUUID()))
+        ));
+        property.replaceImages(List.of(
+                new PropertyImageDetails("https://example.com/front.jpg", true),
+                new PropertyImageDetails("https://example.com/room.jpg", false),
+                new PropertyImageDetails("https://example.com/balcony.jpg", false)
+        ));
+        properties.saveAndFlush(property);
+
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        PropertyResponse detail = http.get()
+                .uri("/api/properties/{id}", property.getId())
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyResponse.class).returnResult().getResponseBody();
+        long statements = statistics.getPrepareStatementCount();
+
+        assertThat(detail).isNotNull();
+        assertThat(detail.amenities()).hasSize(2);
+        assertThat(detail.images()).hasSize(3);
+        assertThat(statements).isBetween(1L, 3L);
+    }
 
     @Test
     void amenityEqualityWorksAcrossPersistenceContextsAndKeepsHashStable() {
@@ -1051,6 +1288,46 @@ class PropertyIntegrationTest {
                 .body(createRequest())
                 .exchange()
                 .expectStatus().isForbidden();
+    }
+
+    private Property catalogProperty(
+            UUID hostId, String city, String title, String price, int guests, PropertyStatus status
+    ) {
+        Property property = Property.create(hostId, new CreatePropertyDetails(
+                title, null, "Ukraine", city, "Test address", new BigDecimal(price), guests
+        ));
+        switch (status) {
+            case ACTIVE -> property.activate();
+            case BLOCKED -> property.block();
+            case INACTIVE -> { }
+        }
+        return properties.saveAndFlush(property);
+    }
+
+    private PropertyCatalogResponse catalog(String query) {
+        PropertyCatalogResponse response = http.get()
+                .uri(URI.create("/api/properties" + query))
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyCatalogResponse.class).returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response;
+    }
+
+    private void assertCatalogIds(String query, UUID... expectedIds) {
+        PropertyCatalogResponse response = catalog(query);
+        assertThat(response.items()).extracting(PropertySummaryResponse::id)
+                .containsExactlyInAnyOrder(expectedIds);
+        assertThat(response.totalElements()).isEqualTo(expectedIds.length);
+    }
+
+    private PropertyCatalogResponse adminCatalog(String token, String query) {
+        PropertyCatalogResponse response = http.get()
+                .uri("/api/properties" + query)
+                .headers(headers -> headers.setBearerAuth(token))
+                .exchange().expectStatus().isOk()
+                .expectBody(PropertyCatalogResponse.class).returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response;
     }
 
     private CreatedProperty createProperty(String hostToken) {

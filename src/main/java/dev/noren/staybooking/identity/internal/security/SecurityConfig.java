@@ -41,6 +41,7 @@ public class SecurityConfig {
                                 "/api/auth/login"
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/amenities").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/properties").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/properties/{id}").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest()
