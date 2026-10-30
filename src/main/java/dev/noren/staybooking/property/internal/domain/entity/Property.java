@@ -6,6 +6,7 @@ import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionExceptio
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.AccessLevel;
@@ -14,6 +15,12 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -73,6 +80,20 @@ public class Property extends SoftDeletedEntity {
     @Column(nullable = false)
     private Long version;
 
+    @Getter(AccessLevel.NONE)
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "property_amenities",
+            joinColumns = @JoinColumn(name = "property_id"),
+            inverseJoinColumns = @JoinColumn(name = "amenity_id")
+    )
+    private Set<Amenity> amenities = new HashSet<>();
+
+    @Getter(AccessLevel.NONE)
+    @OneToMany(mappedBy = "property", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("sortOrder ASC")
+    private List<PropertyImage> images = new ArrayList<>();
+
     public static Property create(UUID hostId, CreatePropertyDetails details) {
         if (details == null) {
             throw new InvalidDomainArgumentException("details cannot be null");
@@ -130,6 +151,143 @@ public class Property extends SoftDeletedEntity {
         address = newAddress;
         maxGuests = newMaxGuests;
         pricePerNight = newPricePerNight;
+    }
+
+    public void replaceAmenities(Collection<Amenity> newAmenities) {
+        requireNotDeleted();
+        requireNotBlocked();
+
+        if (newAmenities == null) {
+            throw new InvalidDomainArgumentException("amenities must not be null");
+        }
+
+        Set<UUID> ids = new HashSet<>();
+        for (Amenity amenity : newAmenities) {
+            if (amenity == null || amenity.getId() == null || !ids.add(amenity.getId())) {
+                throw new InvalidDomainArgumentException("amenities must contain distinct persisted values");
+            }
+        }
+
+        Set<UUID> currentIds = new HashSet<>();
+        for (Amenity amenity : amenities) {
+            currentIds.add(amenity.getId());
+        }
+        if (currentIds.equals(ids)) {
+            return;
+        }
+
+        amenities.clear();
+        amenities.addAll(newAmenities);
+    }
+
+    public boolean replaceImages(List<PropertyImageDetails> newImages) {
+        requireNotDeleted();
+        requireNotBlocked();
+
+        List<PropertyImage> replacements = createImages(newImages);
+        if (hasSameImages(replacements)) {
+            return false;
+        }
+
+        images.clear();
+        images.addAll(replacements);
+        return true;
+    }
+
+    private List<PropertyImage> createImages(List<PropertyImageDetails> newImages) {
+        if (newImages == null) {
+            throw new InvalidDomainArgumentException("images must not be null");
+        }
+
+        List<PropertyImage> replacements = new ArrayList<>(newImages.size());
+        int primaryCount = 0;
+        for (int index = 0; index < newImages.size(); index++) {
+            PropertyImageDetails details = newImages.get(index);
+            if (details == null) {
+                throw new InvalidDomainArgumentException("images must not contain null values");
+            }
+            PropertyImage image = PropertyImage.create(this, details.url(), index, details.primary());
+            replacements.add(image);
+            if (image.isPrimary()) {
+                primaryCount++;
+            }
+        }
+        if (!replacements.isEmpty() && primaryCount != 1) {
+            throw new InvalidDomainArgumentException("images must contain exactly one primary image");
+        }
+        return replacements;
+    }
+
+    private boolean hasSameImages(List<PropertyImage> replacements) {
+        if (images.size() != replacements.size()) {
+            return false;
+        }
+        for (int index = 0; index < images.size(); index++) {
+            PropertyImage current = images.get(index);
+            PropertyImage replacement = replacements.get(index);
+            if (!current.getUrl().equals(replacement.getUrl())
+                    || current.isPrimary() != replacement.isPrimary()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void changeHost(UUID id) {
+        requireNotDeleted();
+
+        UUID newHostId = validatedHostId(id);
+        if (newHostId.equals(hostId)) {
+            throw new InvalidDomainArgumentException("host id must not be the same");
+        }
+
+        hostId = newHostId;
+    }
+
+    public void activate() {
+        requireNotDeleted();
+
+        if (status != PropertyStatus.INACTIVE) {
+            throw new InvalidDomainTransitionException("Only inactive property can be activated");
+        }
+
+        status = PropertyStatus.ACTIVE;
+    }
+
+    public void deactivate() {
+        requireNotDeleted();
+
+        if (status != PropertyStatus.ACTIVE) {
+            throw new InvalidDomainTransitionException("Only active property can be deactivated");
+        }
+
+        status = PropertyStatus.INACTIVE;
+    }
+
+    public void block() {
+        requireNotDeleted();
+
+        if (status.isBlocked()) {
+            throw new InvalidDomainTransitionException("Only available property can be blocked");
+        }
+
+        status = PropertyStatus.BLOCKED;
+    }
+
+    public void unblock() {
+        requireNotDeleted();
+
+        if (!status.isBlocked()) {
+            throw new InvalidDomainTransitionException("Only blocked property can be unblocked");
+        }
+
+        status = PropertyStatus.INACTIVE;
+    }
+
+    @Override
+    public void delete() {
+        requireNotBlocked();
+        super.delete();
     }
 
     private String normalizeTitle(String title) {
@@ -221,61 +379,12 @@ public class Property extends SoftDeletedEntity {
         return id;
     }
 
-    public void changeHost(UUID id) {
-        requireNotDeleted();
-
-        UUID newHostId = validatedHostId(id);
-        if (newHostId.equals(hostId)) {
-            throw new InvalidDomainArgumentException("host id must not be the same");
-        }
-
-        hostId = newHostId;
+    public Set<Amenity> getAmenities() {
+        return Collections.unmodifiableSet(amenities);
     }
 
-    public void activate() {
-        requireNotDeleted();
-
-        if (status != PropertyStatus.INACTIVE) {
-            throw new InvalidDomainTransitionException("Only inactive property can be activated");
-        }
-
-        status = PropertyStatus.ACTIVE;
-    }
-
-    public void deactivate() {
-        requireNotDeleted();
-
-        if (status != PropertyStatus.ACTIVE) {
-            throw new InvalidDomainTransitionException("Only active property can be deactivated");
-        }
-
-        status = PropertyStatus.INACTIVE;
-    }
-
-    public void block() {
-        requireNotDeleted();
-
-        if (status.isBlocked()) {
-            throw new InvalidDomainTransitionException("Only available property can be blocked");
-        }
-
-        status = PropertyStatus.BLOCKED;
-    }
-
-    public void unblock() {
-        requireNotDeleted();
-
-        if (!status.isBlocked()) {
-            throw new InvalidDomainTransitionException("Only blocked property can be unblocked");
-        }
-
-        status = PropertyStatus.INACTIVE;
-    }
-
-    @Override
-    public void delete() {
-        requireNotBlocked();
-        super.delete();
+    public List<PropertyImage> getImages() {
+        return Collections.unmodifiableList(images);
     }
 
     public boolean hostIsOwner(UUID id) {

@@ -1,15 +1,18 @@
 package dev.noren.staybooking.property.internal.web.controller;
 
 import dev.noren.staybooking.bootstrap.web.parser.VersionHeader;
-import dev.noren.staybooking.property.internal.application.service.PropertyService;
+import dev.noren.staybooking.bootstrap.web.request.PaginationRequest;
+import dev.noren.staybooking.property.internal.application.input.PropertyCatalogCriteria;
+import dev.noren.staybooking.property.internal.application.result.PropertyCatalogResult;
 import dev.noren.staybooking.property.internal.application.result.PropertyResult;
+import dev.noren.staybooking.property.internal.application.service.PropertyService;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import dev.noren.staybooking.property.internal.web.mapper.PropertyWebMapper;
-import dev.noren.staybooking.property.internal.web.request.ChangeHostRequest;
-import dev.noren.staybooking.property.internal.web.request.CreatePropertyRequest;
-import dev.noren.staybooking.property.internal.web.request.UpdatePropertyRequest;
+import dev.noren.staybooking.property.internal.web.request.*;
 import dev.noren.staybooking.property.internal.web.response.PropertyResponse;
+import dev.noren.staybooking.property.internal.web.response.PropertyCatalogResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +22,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 @RequestMapping("/api/properties")
@@ -29,6 +33,16 @@ public class PropertyController {
     private final PropertyService service;
     private final PropertyWebMapper mapper;
     private final VersionHeader versionHeader;
+
+    @GetMapping
+    public PropertyCatalogResponse list(
+            @Valid @ModelAttribute PropertyFilterRequest filters,
+            @Valid @ModelAttribute PaginationRequest pagination
+    ) {
+        PropertyCatalogCriteria criteria = mapper.toCriteria(filters, pagination);
+        PropertyCatalogResult catalog = service.list(criteria);
+        return mapper.toResponse(catalog);
+    }
 
     @GetMapping("/{id}")
     public ResponseEntity<PropertyResponse> getById(@PathVariable UUID id) {
@@ -71,6 +85,33 @@ public class PropertyController {
         return propertyResponse(property);
     }
 
+    @PutMapping("/{id}/amenities")
+    @PreAuthorize("hasRole('HOST')")
+    public ResponseEntity<Void> replaceAmenities(
+            @PathVariable UUID id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+            @Valid @RequestBody ReplacePropertyAmenitiesRequest request
+    ) {
+        long expectedVersion = versionHeader.parseIfMatch(ifMatch);
+        long version = service.replaceAmenities(id, request.amenityIds(), expectedVersion);
+        return voidResponse(version);
+    }
+
+    @PutMapping("/{id}/images")
+    @PreAuthorize("hasRole('HOST')")
+    public ResponseEntity<Void> replaceImages(
+            @PathVariable UUID id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+            @RequestBody List<@Valid PropertyImageRequest> request
+    ) {
+        long expectedVersion = versionHeader.parseIfMatch(ifMatch);
+
+        List<PropertyImageDetails> images = mapper.toImageDetails(request);
+        long version = service.replaceImages(id, images, expectedVersion);
+
+        return voidResponse(version);
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('HOST')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -89,10 +130,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-
-        PropertyResult result = service.activate(id, expectedVersion);
-
-        return voidResponse(result);
+        long version = service.activate(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/deactivate")
@@ -102,8 +141,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.deactivate(id, expectedVersion);
-        return voidResponse(result);
+        long version = service.deactivate(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/block")
@@ -113,8 +152,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.block(id, expectedVersion);
-        return voidResponse(result);
+        long version = service.block(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/unblock")
@@ -124,8 +163,8 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.unblock(id, expectedVersion);
-        return voidResponse(result);
+        long version = service.unblock(id, expectedVersion);
+        return voidResponse(version);
     }
 
     @PatchMapping("/{id}/host")
@@ -136,12 +175,12 @@ public class PropertyController {
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch
     ) {
         long expectedVersion = versionHeader.parseIfMatch(ifMatch);
-        PropertyResult result = service.changeHost(id, request.hostId(), expectedVersion);
-        return voidResponse(result);
+        long version = service.changeHost(id, request.hostId(), expectedVersion);
+        return voidResponse(version);
     }
 
-    private ResponseEntity<Void> voidResponse(PropertyResult result) {
-        String etag = versionHeader.toEtag(result.version());
+    private ResponseEntity<Void> voidResponse(long version) {
+        String etag = versionHeader.toEtag(version);
 
         return ResponseEntity.noContent()
                 .header(HttpHeaders.ETAG, etag)

@@ -7,9 +7,11 @@ import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionExceptio
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
+import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,8 +58,10 @@ class PropertyTest {
         assertThatThrownBy(() -> Property.create(null, validDetails()))
                 .isInstanceOf(InvalidDomainArgumentException.class);
 
-        assertThatThrownBy(() -> Property.create(HOST_ID, null))
-                .isInstanceOf(InvalidDomainArgumentException.class);
+        assertThatThrownBy(() -> {
+            //noinspection DataFlowIssue
+            Property.create(HOST_ID, null);
+        }).isInstanceOf(InvalidDomainArgumentException.class);
     }
 
     @Test
@@ -348,6 +352,92 @@ class PropertyTest {
         assertThat(property.getTitle()).isEqualTo("Studio apartment");
         assertThat(property.getHostId()).isEqualTo(HOST_ID);
         assertThat(property.getStatus()).isEqualTo(PropertyStatus.INACTIVE);
+    }
+
+    @Test
+    void amenityCollectionCannotBeChangedOutsideAggregate() {
+        Property property = property();
+
+        property.replaceAmenities(List.of());
+        assertThatThrownBy(() -> property.getAmenities().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> property.replaceAmenities(null))
+                .isInstanceOf(InvalidDomainArgumentException.class);
+
+        property.block();
+        assertThatThrownBy(() -> property.replaceAmenities(List.of()))
+                .isInstanceOf(InvalidDomainTransitionException.class);
+
+        Property deleted = property();
+        deleted.delete();
+        assertThatThrownBy(() -> deleted.replaceAmenities(List.of()))
+                .isInstanceOf(EntityAlreadyDeletedException.class);
+    }
+
+    @Test
+    void replacesImageGalleryAtomicallyAndKeepsInputOrder() {
+        Property property = property();
+        List<PropertyImageDetails> images = List.of(
+                new PropertyImageDetails("https://example.com/front.jpg", false),
+                new PropertyImageDetails("https://example.com/room.jpg", true)
+        );
+
+        assertThat(property.replaceImages(images)).isTrue();
+        assertThat(property.getImages()).extracting(PropertyImage::getSortOrder)
+                .containsExactly(0, 1);
+        assertThat(property.getImages()).extracting(PropertyImage::getUrl)
+                .containsExactly("https://example.com/front.jpg", "https://example.com/room.jpg");
+        assertThat(property.replaceImages(images)).isFalse();
+        assertThatThrownBy(() -> property.getImages().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+
+        assertThatThrownBy(() -> property.replaceImages(List.of(
+                new PropertyImageDetails("https://example.com/new.jpg", true),
+                new PropertyImageDetails("relative.jpg", false)
+        ))).isInstanceOf(InvalidDomainArgumentException.class);
+        assertThat(property.getImages()).extracting(PropertyImage::getUrl)
+                .containsExactly("https://example.com/front.jpg", "https://example.com/room.jpg");
+
+        assertThat(property.replaceImages(List.of())).isTrue();
+        assertThat(property.getImages()).isEmpty();
+        assertThat(property.replaceImages(List.of())).isFalse();
+    }
+
+    @Test
+    void rejectsInvalidImageUrlsAndPrimaryCounts() {
+        Property property = property();
+
+        for (String url : List.of("", " ", "relative.jpg", "ftp://example.com/a.jpg",
+                "https://", "https://example.com/has space.jpg", "https://example.com/" + "x".repeat(2049))) {
+            assertThatThrownBy(() -> property.replaceImages(List.of(new PropertyImageDetails(url, true))))
+                    .isInstanceOf(InvalidDomainArgumentException.class);
+        }
+        assertThatThrownBy(() -> property.replaceImages(List.of(new PropertyImageDetails(null, true))))
+                .isInstanceOf(InvalidDomainArgumentException.class);
+        assertThatThrownBy(() -> property.replaceImages(List.of(new PropertyImageDetails("https://example.com/a.jpg", null))))
+                .isInstanceOf(InvalidDomainArgumentException.class);
+        assertThatThrownBy(() -> property.replaceImages(List.of(new PropertyImageDetails("https://example.com/a.jpg", false))))
+                .isInstanceOf(InvalidDomainArgumentException.class);
+        assertThatThrownBy(() -> property.replaceImages(List.of(
+                new PropertyImageDetails("https://example.com/a.jpg", true),
+                new PropertyImageDetails("https://example.com/b.jpg", true)
+        ))).isInstanceOf(InvalidDomainArgumentException.class);
+        assertThatThrownBy(() -> property.replaceImages(null))
+                .isInstanceOf(InvalidDomainArgumentException.class);
+        assertThat(property.getImages()).isEmpty();
+    }
+
+    @Test
+    void blockedAndDeletedPropertiesRejectImageChanges() {
+        Property blocked = property();
+        blocked.block();
+        assertThatThrownBy(() -> blocked.replaceImages(List.of()))
+                .isInstanceOf(InvalidDomainTransitionException.class);
+
+        Property deleted = property();
+        deleted.delete();
+        assertThatThrownBy(() -> deleted.replaceImages(List.of()))
+                .isInstanceOf(EntityAlreadyDeletedException.class);
     }
 
     private static Property property() {

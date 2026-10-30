@@ -4,6 +4,7 @@ import dev.noren.staybooking.identity.api.IdentityApi;
 import dev.noren.staybooking.identity.api.view.ActorRole;
 import dev.noren.staybooking.identity.api.view.ActorView;
 import dev.noren.staybooking.property.internal.domain.entity.Property;
+import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
@@ -20,6 +21,12 @@ public class PropertyAuthorization {
 
     public void requireCurrentAdmin() {
         requireCurrentActorWithRole(ActorRole.ADMIN);
+    }
+
+    public void requireCatalogStatusAccess(PropertyStatus status) {
+        if (status != PropertyStatus.ACTIVE) {
+            requireCurrentAdmin();
+        }
     }
 
     public void requireOwnership(ActorView actor, Property property) {

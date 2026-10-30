@@ -4,6 +4,7 @@ import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record PropertyResult(
@@ -19,6 +20,8 @@ public record PropertyResult(
         BigDecimal pricePerNight,
         Integer maxGuests,
         PropertyStatus status,
-        Long version
+        Long version,
+        List<AmenityResult> amenities,
+        List<PropertyImageResult> images
 ) {
 }
