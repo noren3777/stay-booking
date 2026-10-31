@@ -1,5 +1,6 @@
 package dev.noren.staybooking.property.internal.application.mapper;
 
+import dev.noren.staybooking.property.api.view.PropertyBookingView;
 import dev.noren.staybooking.property.internal.application.result.PropertyCatalogResult;
 import dev.noren.staybooking.property.internal.application.result.PropertyResult;
 import dev.noren.staybooking.property.internal.application.result.PropertySummaryResult;
@@ -8,6 +9,7 @@ import dev.noren.staybooking.property.internal.domain.entity.Property;
 import org.mapstruct.InjectionStrategy;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.ReportingPolicy;
 import org.springframework.data.domain.Page;
 
 import java.util.List;
@@ -15,6 +17,7 @@ import java.util.List;
 @Mapper(
         componentModel = "spring",
         injectionStrategy = InjectionStrategy.CONSTRUCTOR,
+        unmappedTargetPolicy = ReportingPolicy.ERROR,
         uses = AmenityApplicationMapper.class
 )
 public interface PropertyApplicationMapper {
@@ -31,4 +34,6 @@ public interface PropertyApplicationMapper {
                 page.getTotalPages()
         );
     }
+
+    PropertyBookingView toView(Property property);
 }
