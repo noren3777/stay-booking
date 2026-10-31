@@ -8,4 +8,8 @@ public enum PropertyStatus {
     public boolean isBlocked() {
         return this == BLOCKED;
     }
+
+    public boolean isActive() {
+        return this == ACTIVE;
+    }
 }

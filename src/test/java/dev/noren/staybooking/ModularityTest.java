@@ -1,5 +1,10 @@
 package dev.noren.staybooking;
 
+import com.tngtech.archunit.core.domain.JavaClass;
+import dev.noren.staybooking.property.api.PropertyApi;
+import dev.noren.staybooking.property.api.view.PropertyBookingView;
+import dev.noren.staybooking.property.internal.application.service.PropertyApiImpl;
+import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModules;
 
@@ -25,6 +30,32 @@ public class ModularityTest {
                         "review",
                         "bootstrap"
                 );
+    }
+
+    @Test
+    public void propertyApiExposesOnlyBookingContract() {
+        var property = ApplicationModules.of(StayBookingApplication.class)
+                .getModuleByName("property").orElseThrow();
+        var api = property.getNamedInterfaces().getByName("api").orElseThrow();
+
+        assertThat(api.asJavaClasses().map(JavaClass::getName))
+                .containsExactlyInAnyOrder(
+                        PropertyApi.class.getName(),
+                        PropertyBookingView.class.getName()
+                );
+    }
+
+    @Test
+    public void propertyImplementationAndRepositoryRemainInternal() {
+        var property = ApplicationModules.of(StayBookingApplication.class)
+                .getModuleByName("property").orElseThrow();
+
+        assertThat(property.isExposed(PropertyApiImpl.class))
+                .as("PropertyApiImpl must remain internal")
+                .isFalse();
+        assertThat(property.isExposed(PropertyRepository.class))
+                .as("PropertyRepository must remain internal")
+                .isFalse();
     }
 
 }
