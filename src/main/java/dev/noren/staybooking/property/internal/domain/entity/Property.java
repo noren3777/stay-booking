@@ -9,19 +9,14 @@ import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch
 import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.Digits;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 @Entity
 @Getter
@@ -242,6 +237,10 @@ public class Property extends SoftDeletedEntity {
         }
 
         hostId = newHostId;
+    }
+
+    public boolean isBookable() {
+        return status.isActive() && !isDeleted();
     }
 
     public void activate() {

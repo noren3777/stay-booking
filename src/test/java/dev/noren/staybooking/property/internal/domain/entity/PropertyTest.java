@@ -211,6 +211,64 @@ class PropertyTest {
     }
 
     @Test
+    void newlyCreatedPropertyIsNotBookable() {
+        Property property = property();
+
+        assertThat(property.isBookable()).isFalse();
+    }
+
+    @Test
+    void activePropertyIsBookable() {
+        Property property = property();
+        property.activate();
+
+        assertThat(property.isBookable()).isTrue();
+    }
+
+    @Test
+    void deactivatedPropertyIsNotBookable() {
+        Property property = property();
+        property.activate();
+        property.deactivate();
+
+        assertThat(property.isBookable()).isFalse();
+    }
+
+    @Test
+    void blockedPropertyIsNotBookable() {
+        Property property = property();
+        property.activate();
+        property.block();
+
+        assertThat(property.isBookable()).isFalse();
+    }
+
+    @Test
+    void unblockedPropertyIsNotBookableUntilActivatedAgain() {
+        Property property = property();
+        property.activate();
+        property.block();
+
+        property.unblock();
+
+        assertThat(property.isBookable()).isFalse();
+
+        property.activate();
+
+        assertThat(property.isBookable()).isTrue();
+    }
+
+    @Test
+    void deletedActivePropertyIsNotBookable() {
+        Property property = property();
+        property.activate();
+        property.delete();
+
+        assertThat(property.getStatus()).isEqualTo(PropertyStatus.ACTIVE);
+        assertThat(property.isBookable()).isFalse();
+    }
+
+    @Test
     void activatesAndDeactivatesProperty() {
         Property property = property();
 
