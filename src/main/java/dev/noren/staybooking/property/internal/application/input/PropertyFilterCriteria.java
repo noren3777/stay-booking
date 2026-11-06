@@ -1,19 +1,16 @@
 package dev.noren.staybooking.property.internal.application.input;
 
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
+import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
-
-import java.math.BigDecimal;
 
 public record PropertyFilterCriteria(
         String city,
-        BigDecimal minPrice,
-        BigDecimal maxPrice,
+        Money minPrice,
+        Money maxPrice,
         Integer minGuests,
         PropertyStatus status
 ) {
-    private static final BigDecimal MAX_PRICE = new BigDecimal("9999999999.99");
-
     public PropertyFilterCriteria {
         if (city != null) {
             city = city.trim();
@@ -34,18 +31,12 @@ public record PropertyFilterCriteria(
         }
     }
 
-    private static void validatePrice(BigDecimal price, String field) {
+    private static void validatePrice(Money price, String field) {
         if (price == null) {
             return;
         }
-        if (price.signum() <= 0) {
+        if (price.amount().signum() <= 0) {
             throw new InvalidDomainArgumentException(field + " must be positive");
-        }
-        if (price.scale() > 2) {
-            throw new InvalidDomainArgumentException(field + " must have at most 2 decimal places");
-        }
-        if (price.compareTo(MAX_PRICE) > 0) {
-            throw new InvalidDomainArgumentException(field + " must not exceed " + MAX_PRICE);
         }
     }
 }

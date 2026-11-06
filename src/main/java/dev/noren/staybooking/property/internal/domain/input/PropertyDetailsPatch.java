@@ -1,8 +1,7 @@
 package dev.noren.staybooking.property.internal.domain.input;
 
 import dev.noren.staybooking.bootstrap.domain.FieldChange;
-
-import java.math.BigDecimal;
+import dev.noren.staybooking.bootstrap.domain.Money;
 
 public record PropertyDetailsPatch(
         FieldChange<String> title,
@@ -10,7 +9,7 @@ public record PropertyDetailsPatch(
         FieldChange<String> country,
         FieldChange<String> city,
         FieldChange<String> address,
-        FieldChange<BigDecimal> pricePerNight,
+        FieldChange<Money> pricePerNight,
         FieldChange<Integer> maxGuests
 ) {
 }

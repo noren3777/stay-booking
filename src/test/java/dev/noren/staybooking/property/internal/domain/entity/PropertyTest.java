@@ -1,6 +1,7 @@
 package dev.noren.staybooking.property.internal.domain.entity;
 
 import dev.noren.staybooking.bootstrap.domain.FieldChange;
+import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.bootstrap.exception.EntityAlreadyDeletedException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionException;
@@ -35,7 +36,7 @@ class PropertyTest {
                         "  Ukraine  ",
                         "  Kyiv  ",
                         "  14 Khreshchatyk Street  ",
-                        new BigDecimal("100"),
+                        Money.of(new BigDecimal("100")),
                         2
                 )
         );
@@ -47,7 +48,7 @@ class PropertyTest {
         assertThat(property.getCity()).isEqualTo("Kyiv");
         assertThat(property.getAddress()).isEqualTo("14 Khreshchatyk Street");
         assertThat(property.getPricePerNight())
-                .isEqualTo(new BigDecimal("100.00"));
+                .isEqualTo(Money.of(new BigDecimal("100.00")));
         assertThat(property.getMaxGuests()).isEqualTo(2);
         assertThat(property.getStatus()).isEqualTo(PropertyStatus.INACTIVE);
         assertThat(property.getDeletedAt()).isNull();
@@ -141,7 +142,7 @@ class PropertyTest {
                 change("  Poland  "),
                 change("  Warsaw  "),
                 change("  8 Velyka Vasylkivska Street  "),
-                change(new BigDecimal("250")),
+                change(Money.of(new BigDecimal("250"))),
                 change(4)
         ));
 
@@ -151,7 +152,7 @@ class PropertyTest {
         assertThat(property.getCity()).isEqualTo("Warsaw");
         assertThat(property.getAddress()).isEqualTo("8 Velyka Vasylkivska Street");
         assertThat(property.getPricePerNight())
-                .isEqualTo(new BigDecimal("250.00"));
+                .isEqualTo(Money.of(new BigDecimal("250.00")));
         assertThat(property.getMaxGuests()).isEqualTo(4);
     }
 
@@ -175,7 +176,7 @@ class PropertyTest {
         assertThat(property.getCity()).isEqualTo("Kyiv");
         assertThat(property.getAddress()).isEqualTo("14 Khreshchatyk Street");
         assertThat(property.getPricePerNight())
-                .isEqualTo(new BigDecimal("100.00"));
+                .isEqualTo(Money.of(new BigDecimal("100.00")));
         assertThat(property.getMaxGuests()).isEqualTo(2);
     }
 
@@ -189,7 +190,7 @@ class PropertyTest {
                 null,
                 null,
                 null,
-                change(BigDecimal.ZERO),
+                change(Money.of(BigDecimal.ZERO)),
                 null
         );
 
@@ -198,7 +199,7 @@ class PropertyTest {
 
         assertThat(property.getTitle()).isEqualTo("Studio apartment");
         assertThat(property.getPricePerNight())
-                .isEqualTo(new BigDecimal("100.00"));
+                .isEqualTo(Money.of(new BigDecimal("100.00")));
         assertThat(property.getStatus()).isEqualTo(PropertyStatus.INACTIVE);
     }
 
@@ -519,7 +520,7 @@ class PropertyTest {
             Integer capacity
     ) {
         return new CreatePropertyDetails(
-                title, description, country, city, address, price, capacity
+                title, description, country, city, address, price == null ? null : Money.of(price), capacity
         );
     }
 
@@ -533,10 +534,10 @@ class PropertyTest {
     }
 
     private static void assertInvalidPrice(BigDecimal price) {
-        assertInvalidDetails(details(
+        assertThatThrownBy(() -> Property.create(HOST_ID, details(
                 "Studio apartment", "Near the metro", "Ukraine", "Kyiv", "14 Khreshchatyk Street",
                 price, 2
-        ));
+        ))).isInstanceOf(InvalidDomainArgumentException.class);
     }
 
     private static void assertInvalidCapacity(Integer capacity) {

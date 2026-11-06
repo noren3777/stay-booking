@@ -7,7 +7,7 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
 
-import java.math.BigDecimal;
+import dev.noren.staybooking.bootstrap.domain.Money;
 import java.util.Locale;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -34,7 +34,7 @@ public final class PropertySpecifications {
                 builder.equal(builder.lower(root.get("city")), normalizedCity);
     }
 
-    private static Specification<Property> priceAtLeast(BigDecimal price) {
+    private static Specification<Property> priceAtLeast(Money price) {
         if (price == null) {
             return Specification.unrestricted();
         }
@@ -42,7 +42,7 @@ public final class PropertySpecifications {
                 builder.greaterThanOrEqualTo(root.get("pricePerNight"), price);
     }
 
-    private static Specification<Property> priceAtMost(BigDecimal price) {
+    private static Specification<Property> priceAtMost(Money price) {
         if (price == null) {
             return Specification.unrestricted();
         }
