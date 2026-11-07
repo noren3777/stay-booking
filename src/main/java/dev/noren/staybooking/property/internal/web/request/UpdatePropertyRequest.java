@@ -2,6 +2,7 @@ package dev.noren.staybooking.property.internal.web.request;
 
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.openapitools.jackson.nullable.JsonNullable;
@@ -14,7 +15,7 @@ public record UpdatePropertyRequest(
         JsonNullable<@NotBlank @Size(max = 100) String> country,
         JsonNullable<@NotBlank @Size(max = 100) String> city,
         JsonNullable<@NotBlank @Size(max = 255) String> address,
-        JsonNullable<@Positive @Digits(integer = 10, fraction = 2) BigDecimal> pricePerNight,
+        JsonNullable<@NotNull @Positive @Digits(integer = 10, fraction = 2) BigDecimal> pricePerNight,
         JsonNullable<@Positive Integer> maxGuests
 ) {
 }

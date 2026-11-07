@@ -1,6 +1,6 @@
 package dev.noren.staybooking.property.internal.domain.input;
 
-import java.math.BigDecimal;
+import dev.noren.staybooking.bootstrap.domain.Money;
 
 public record CreatePropertyDetails(
         String title,
@@ -8,7 +8,7 @@ public record CreatePropertyDetails(
         String country,
         String city,
         String address,
-        BigDecimal pricePerNight,
+        Money pricePerNight,
         Integer maxGuests
 ) {
 }

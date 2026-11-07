@@ -26,6 +26,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import dev.noren.staybooking.bootstrap.domain.Money;
+
 import java.math.BigDecimal;
 import java.util.UUID;
 
@@ -65,7 +67,7 @@ class PropertyRepositoryTest {
         assertThat(loaded.getHostId()).isEqualTo(hostId);
         assertThat(loaded.getTitle()).isEqualTo("Flat near the park");
         assertThat(loaded.getDescription()).isEqualTo("Second floor, balcony");
-        assertThat(loaded.getPricePerNight()).isEqualByComparingTo("125.50");
+        assertThat(loaded.getPricePerNight()).isEqualTo(Money.of(new BigDecimal("125.50")));
         assertThat(loaded.getMaxGuests()).isEqualTo(3);
         assertThat(loaded.getStatus()).isEqualTo(PropertyStatus.INACTIVE);
         assertThat(loaded.getVersion()).isEqualTo(0L);
@@ -178,7 +180,7 @@ class PropertyRepositoryTest {
                 "Ukraine",
                 "Kyiv",
                 "14 Khreshchatyk Street",
-                new BigDecimal("125.50"),
+                Money.of(new BigDecimal("125.50")),
                 3
         ));
     }

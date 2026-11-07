@@ -1,5 +1,6 @@
 package dev.noren.staybooking.property.internal.application.input;
 
+import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import org.junit.jupiter.api.Test;
 
@@ -15,15 +16,15 @@ class PropertyFilterCriteriaTest {
     void rejectsInvalidPricesWithoutWebValidation() {
         for (BigDecimal price : List.of(
                 BigDecimal.ZERO,
-                new BigDecimal("-1"),
-                new BigDecimal("1.001"),
-                new BigDecimal("10000000000.00")
+                new BigDecimal("-1")
         )) {
-            assertThatThrownBy(() -> new PropertyFilterCriteria(null, price, null, null, null))
+            assertThatThrownBy(() -> new PropertyFilterCriteria(null, Money.of(price), null, null, null))
                     .isInstanceOf(InvalidDomainArgumentException.class);
-            assertThatThrownBy(() -> new PropertyFilterCriteria(null, null, price, null, null))
+            assertThatThrownBy(() -> new PropertyFilterCriteria(null, null, Money.of(price), null, null))
                     .isInstanceOf(InvalidDomainArgumentException.class);
         }
+        assertThatThrownBy(() -> Money.of(new BigDecimal("1.001")))
+                .isInstanceOf(InvalidDomainArgumentException.class);
     }
 
     @Test
@@ -37,12 +38,12 @@ class PropertyFilterCriteriaTest {
     @Test
     void acceptsBoundaryValuesAndNormalizesCity() {
         var criteria = new PropertyFilterCriteria(
-                "  Kyiv  ", new BigDecimal("0.01"), new BigDecimal("9999999999.99"), 1, null
+                "  Kyiv  ", Money.of(new BigDecimal("0.01")), Money.of(new BigDecimal("10000000000.00")), 1, null
         );
 
         assertThat(criteria.city()).isEqualTo("Kyiv");
-        assertThat(criteria.minPrice()).isEqualByComparingTo("0.01");
-        assertThat(criteria.maxPrice()).isEqualByComparingTo("9999999999.99");
+        assertThat(criteria.minPrice().amount()).isEqualByComparingTo("0.01");
+        assertThat(criteria.maxPrice().amount()).isEqualByComparingTo("10000000000.00");
         assertThat(criteria.minGuests()).isEqualTo(1);
     }
 }

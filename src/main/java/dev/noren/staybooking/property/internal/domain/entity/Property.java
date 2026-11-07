@@ -1,21 +1,21 @@
 package dev.noren.staybooking.property.internal.domain.entity;
 
+import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.bootstrap.entity.SoftDeletedEntity;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionException;
+import dev.noren.staybooking.bootstrap.persistence.converter.MoneyConverter;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
 import dev.noren.staybooking.property.internal.domain.input.PropertyImageDetails;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
-import jakarta.validation.constraints.Digits;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.*;
 
 @Entity
@@ -24,8 +24,7 @@ import java.util.*;
 @Table(name = "properties")
 public class Property extends SoftDeletedEntity {
 
-    private static final int PRICE_SCALE = 2;
-    private static final BigDecimal MAX_PRICE = new BigDecimal("9999999999.99");
+    private static final Money MAX_PRICE_PER_NIGHT = Money.of(new BigDecimal("9999999999.99"));
 
     @NotNull
     @Column(nullable = false, name = "host_id")
@@ -56,10 +55,9 @@ public class Property extends SoftDeletedEntity {
     private String address;
 
     @NotNull
+    @Convert(converter = MoneyConverter.class)
     @Column(nullable = false, name = "price_per_night", precision = 12, scale = 2)
-    @Digits(integer = 10, fraction = 2)
-    @Positive
-    private BigDecimal pricePerNight;
+    private Money pricePerNight;
 
     @NotNull
     @Column(nullable = false, name = "max_guests")
@@ -135,7 +133,7 @@ public class Property extends SoftDeletedEntity {
         Integer newMaxGuests = details.maxGuests() != null && details.maxGuests().specified()
                 ? validateCapacity(details.maxGuests().value())
                 : maxGuests;
-        BigDecimal newPricePerNight = details.pricePerNight() != null && details.pricePerNight().specified()
+        Money newPricePerNight = details.pricePerNight() != null && details.pricePerNight().specified()
                 ? normalizePrice(details.pricePerNight().value())
                 : pricePerNight;
 
@@ -343,21 +341,17 @@ public class Property extends SoftDeletedEntity {
         return address;
     }
 
-    private BigDecimal normalizePrice(BigDecimal price) {
+    private Money normalizePrice(Money price) {
         if (price == null) {
             throw new InvalidDomainArgumentException("price must not be null");
         }
-        if (price.signum() <= 0) {
+        if (price.amount().signum() <= 0) {
             throw new InvalidDomainArgumentException("price must be positive");
         }
-        if (price.scale() > PRICE_SCALE) {
-            throw new InvalidDomainArgumentException("price must have at most " + PRICE_SCALE + " decimal places");
+        if (price.compareTo(MAX_PRICE_PER_NIGHT) > 0) {
+            throw new InvalidDomainArgumentException("price must not exceed " + MAX_PRICE_PER_NIGHT.amount());
         }
-        if (price.compareTo(MAX_PRICE) > 0) {
-            throw new InvalidDomainArgumentException("price must not exceed " + MAX_PRICE);
-        }
-
-        return price.setScale(PRICE_SCALE, RoundingMode.UNNECESSARY);
+        return price;
     }
 
     private Integer validateCapacity(Integer capacity) {

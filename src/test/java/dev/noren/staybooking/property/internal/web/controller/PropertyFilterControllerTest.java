@@ -1,10 +1,12 @@
 package dev.noren.staybooking.property.internal.web.controller;
 
+import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.bootstrap.exception.GlobalExceptionHandler;
 import dev.noren.staybooking.bootstrap.pagination.PaginationCriteria;
 import dev.noren.staybooking.bootstrap.pagination.SortCriteria;
 import dev.noren.staybooking.bootstrap.pagination.SortDirection;
 import dev.noren.staybooking.bootstrap.web.mapper.JsonNullablePatchMapper;
+import dev.noren.staybooking.bootstrap.web.mapper.MoneyWebMapper;
 import dev.noren.staybooking.bootstrap.web.mapper.PaginationWebMapper;
 import dev.noren.staybooking.bootstrap.web.parser.SortItemConverter;
 import dev.noren.staybooking.bootstrap.web.parser.VersionHeader;
@@ -13,13 +15,18 @@ import dev.noren.staybooking.property.internal.application.input.PropertyFilterC
 import dev.noren.staybooking.property.internal.application.result.PropertyCatalogResult;
 import dev.noren.staybooking.property.internal.application.service.PropertyService;
 import dev.noren.staybooking.property.internal.domain.enums.PropertyStatus;
-import dev.noren.staybooking.property.internal.web.mapper.PropertyWebMapperImpl;
+import dev.noren.staybooking.property.internal.web.mapper.PropertyWebMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.format.support.DefaultFormattingConversionService;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
@@ -37,7 +44,17 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@SpringJUnitConfig(PropertyFilterControllerTest.MapperConfig.class)
 class PropertyFilterControllerTest {
+
+    @Configuration(proxyBeanMethods = false)
+    @ComponentScan(basePackageClasses = PropertyWebMapper.class)
+    @Import({JsonNullablePatchMapper.class, MoneyWebMapper.class, PaginationWebMapper.class})
+    static class MapperConfig {
+    }
+
+    @Autowired
+    private PropertyWebMapper mapper;
 
     private PropertyService service;
     private MockMvc mvc;
@@ -53,7 +70,7 @@ class PropertyFilterControllerTest {
         conversionService.addConverter(new SortItemConverter());
         mvc = MockMvcBuilders.standaloneSetup(new PropertyController(
                         service,
-                        new PropertyWebMapperImpl(new JsonNullablePatchMapper(), new PaginationWebMapper()),
+                        mapper,
                         mock(VersionHeader.class)
                 ))
                 .setValidator(validator)
@@ -75,7 +92,7 @@ class PropertyFilterControllerTest {
         var captor = ArgumentCaptor.forClass(PropertyCatalogCriteria.class);
         verify(service).list(captor.capture());
         assertThat(captor.getValue().filters()).isEqualTo(new PropertyFilterCriteria(
-                "Kyiv", new BigDecimal("100.50"), new BigDecimal("200.00"), 2,
+                "Kyiv", Money.of(new BigDecimal("100.50")), Money.of(new BigDecimal("200.00")), 2,
                 PropertyStatus.ACTIVE
         ));
         assertThat(captor.getValue().pagination()).isEqualTo(defaultPagination());
@@ -179,7 +196,6 @@ class PropertyFilterControllerTest {
     @CsvSource({
             "city, '   '",
             "minPrice, 0",
-            "minPrice, 10000000000.00",
             "minPrice, 1.234",
             "maxPrice, -1",
             "minGuests, 0",

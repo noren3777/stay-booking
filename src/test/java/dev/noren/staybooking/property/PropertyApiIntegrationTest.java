@@ -19,6 +19,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import dev.noren.staybooking.bootstrap.domain.Money;
+
 import java.math.BigDecimal;
 import java.util.UUID;
 
@@ -55,7 +57,7 @@ class PropertyApiIntegrationTest {
         PropertyBookingView view = propertyApi.findForBooking(propertyId).orElseThrow();
 
         assertThat(view).isEqualTo(new PropertyBookingView(
-                propertyId, property.getHostId(), new BigDecimal("125.50"), 3, true
+                propertyId, property.getHostId(), Money.of(new BigDecimal("125.50")), 3, true
         ));
     }
 
@@ -67,7 +69,7 @@ class PropertyApiIntegrationTest {
         PropertyBookingView view = propertyApi.findForBooking(propertyId).orElseThrow();
 
         assertThat(view).isEqualTo(new PropertyBookingView(
-                propertyId, property.getHostId(), new BigDecimal("125.50"), 3, false
+                propertyId, property.getHostId(), Money.of(new BigDecimal("125.50")), 3, false
         ));
     }
 
@@ -81,7 +83,7 @@ class PropertyApiIntegrationTest {
         PropertyBookingView view = propertyApi.findForBooking(propertyId).orElseThrow();
 
         assertThat(view).isEqualTo(new PropertyBookingView(
-                propertyId, property.getHostId(), new BigDecimal("125.50"), 3, false
+                propertyId, property.getHostId(), Money.of(new BigDecimal("125.50")), 3, false
         ));
     }
 
@@ -114,7 +116,7 @@ class PropertyApiIntegrationTest {
                 "Ukraine",
                 "Kyiv",
                 "14 Khreshchatyk Street",
-                new BigDecimal("125.5"),
+                Money.of(new BigDecimal("125.5")),
                 3
         ));
     }

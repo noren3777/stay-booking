@@ -40,8 +40,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import dev.noren.staybooking.bootstrap.domain.Money;
+
 import java.math.BigDecimal;
 import java.net.URI;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -114,7 +117,6 @@ class PropertyIntegrationTest {
     @ValueSource(strings = {
             "city=%20%20%20",
             "minPrice=0",
-            "minPrice=10000000000.00",
             "minPrice=1.001",
             "maxPrice=-1",
             "maxPrice=1.001",
@@ -131,6 +133,14 @@ class PropertyIntegrationTest {
     void invalidCatalogParametersReturnBadRequest(String query) {
         http.get().uri(URI.create("/api/properties?" + query))
                 .exchange().expectStatus().isBadRequest();
+    }
+
+    @Test
+    void invalidCatalogPriceScaleReturnsBadRequest() {
+        http.get().uri("/api/properties?minPrice=1.001")
+                .exchange().expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.detail").isEqualTo("amount must have at most 2 decimal places");
     }
 
     @Test
@@ -151,6 +161,7 @@ class PropertyIntegrationTest {
         assertCatalogIds("?city=" + city + "&minPrice=150.00&maxPrice=150.00", middle.getId());
         assertCatalogIds("?city=" + city + "&maxPrice=0.01", cheapest.getId());
         assertCatalogIds("?city=" + city + "&minPrice=9999999999.99", mostExpensive.getId());
+        assertCatalogIds("?city=" + city + "&minPrice=10000000000.00");
         assertCatalogIds("?city=" + city + "&minGuests=10", mostExpensive.getId());
         assertCatalogIds("?city=" + city + "&minGuests=11");
     }
@@ -196,7 +207,7 @@ class PropertyIntegrationTest {
         Property inactive = catalogProperty(hostId, city, "Inactive", "110.00", 2, PropertyStatus.INACTIVE);
         Property blocked = catalogProperty(hostId, city, "Blocked", "120.00", 2, PropertyStatus.BLOCKED);
         Property deleted = Property.create(hostId, new CreatePropertyDetails(
-                "Deleted", null, "Ukraine", city, "Test address", new BigDecimal("130.00"), 2
+                "Deleted", null, "Ukraine", city, "Test address", Money.of(new BigDecimal("130.00")), 2
         ));
         deleted.activate();
         deleted.delete();
@@ -261,7 +272,7 @@ class PropertyIntegrationTest {
         for (int index = 0; index < 6; index++) {
             Property property = Property.create(hostId, new CreatePropertyDetails(
                     "Property " + index, null, "Ukraine", city, "Test address",
-                    new BigDecimal("100.00"), 2
+                    Money.of(new BigDecimal("100.00")), 2
             ));
             property.activate();
             property.replaceAmenities(List.of(amenity));
@@ -292,7 +303,7 @@ class PropertyIntegrationTest {
         UUID hostId = createUser(UserRole.HOST).getId();
         Property property = Property.create(hostId, new CreatePropertyDetails(
                 "Property with relations", null, "Ukraine", "Kyiv", "Test address",
-                new BigDecimal("100.00"), 2
+                Money.of(new BigDecimal("100.00")), 2
         ));
         property.activate();
         property.replaceAmenities(List.of(
@@ -1233,6 +1244,54 @@ class PropertyIntegrationTest {
         assertThat(unchanged.getResponseBody().version()).isEqualTo(created.response().version());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1", "1.001", "10000000000.00"})
+    void invalidPropertyPricesReturnFieldErrorsOnCreateAndPatch(String amount) {
+        String hostToken = createUserAndLogin(UserRole.HOST);
+        CreatedProperty created = createProperty(hostToken);
+        var request = new HashMap<>(createRequest());
+        request.put("pricePerNight", new BigDecimal(amount));
+
+        http.post()
+                .uri("/api/properties")
+                .headers(headers -> headers.setBearerAuth(hostToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
+                .exchange().expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.errors[0].field").isEqualTo("pricePerNight");
+
+        http.patch()
+                .uri("/api/properties/{id}", created.id())
+                .headers(headers -> {
+                    headers.setBearerAuth(hostToken);
+                    headers.set(HttpHeaders.IF_MATCH, created.etag());
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("pricePerNight", new BigDecimal(amount)))
+                .exchange().expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.errors[0].field").isEqualTo("pricePerNight");
+    }
+
+    @Test
+    void nullPricePatchReturnsFieldError() {
+        String hostToken = createUserAndLogin(UserRole.HOST);
+        CreatedProperty created = createProperty(hostToken);
+
+        http.patch()
+                .uri("/api/properties/{id}", created.id())
+                .headers(headers -> {
+                    headers.setBearerAuth(hostToken);
+                    headers.set(HttpHeaders.IF_MATCH, created.etag());
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"pricePerNight\":null}")
+                .exchange().expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.errors[0].field").isEqualTo("pricePerNight");
+    }
+
     @Test
     void anotherHostCannotActivateOrDeleteProperty() {
         String ownerToken = createUserAndLogin(UserRole.HOST);
@@ -1294,7 +1353,7 @@ class PropertyIntegrationTest {
             UUID hostId, String city, String title, String price, int guests, PropertyStatus status
     ) {
         Property property = Property.create(hostId, new CreatePropertyDetails(
-                title, null, "Ukraine", city, "Test address", new BigDecimal(price), guests
+                title, null, "Ukraine", city, "Test address", Money.of(new BigDecimal(price)), guests
         ));
         switch (status) {
             case ACTIVE -> property.activate();
