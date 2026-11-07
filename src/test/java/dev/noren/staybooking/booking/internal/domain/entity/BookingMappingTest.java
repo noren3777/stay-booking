@@ -1,6 +1,7 @@
 package dev.noren.staybooking.booking.internal.domain.entity;
 
 import dev.noren.staybooking.booking.internal.domain.DateRange;
+import dev.noren.staybooking.booking.internal.persistence.BookingRepository;
 import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.identity.internal.domain.entity.User;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
@@ -12,6 +13,8 @@ import dev.noren.staybooking.property.internal.persistence.repository.PropertyRe
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration;
@@ -49,8 +52,13 @@ class BookingMappingTest {
 
     private final UserRepository users;
     private final PropertyRepository properties;
+    private final BookingRepository bookings;
     private final EntityManager entityManager;
     private final JdbcTemplate jdbc;
+
+    private enum InvalidBookingValue {
+        NUMBER_OF_GUESTS, PRICE_PER_NIGHT, TOTAL_PRICE, STATUS
+    }
 
     @Test
     void reloadsBookingWithInheritedIdTimestampsAndPriceSnapshots() {
@@ -60,7 +68,7 @@ class BookingMappingTest {
         UUID guestId = booking.getGuestId();
         entityManager.clear();
 
-        Booking loaded = entityManager.find(Booking.class, bookingId);
+        Booking loaded = bookings.findById(bookingId).orElseThrow();
 
         assertThat(loaded.getPropertyId()).isEqualTo(propertyId);
         assertThat(loaded.getGuestId()).isEqualTo(guestId);
@@ -92,6 +100,31 @@ class BookingMappingTest {
         )).isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @ParameterizedTest
+    @EnumSource(InvalidBookingValue.class)
+    void databaseRejectsInvalidBookingValues(InvalidBookingValue invalidValue) {
+        UUID bookingId = saveBooking().getId();
+
+        assertThatThrownBy(() -> {
+            switch (invalidValue) {
+                case NUMBER_OF_GUESTS -> jdbc.update("UPDATE bookings SET number_of_guests = 0 WHERE id = ?", bookingId);
+                case PRICE_PER_NIGHT -> jdbc.update("UPDATE bookings SET price_per_night_snapshot = 0 WHERE id = ?", bookingId);
+                case TOTAL_PRICE -> jdbc.update("UPDATE bookings SET total_price = -1 WHERE id = ?", bookingId);
+                case STATUS -> jdbc.update("UPDATE bookings SET status = 'UNKNOWN' WHERE id = ?", bookingId);
+            }
+        })
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void databaseRejectsMissingPropertyReference() {
+        UUID bookingId = saveBooking().getId();
+
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE bookings SET property_id = ? WHERE id = ?", UUID.randomUUID(), bookingId
+        )).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     private Booking saveBooking() {
         UUID hostId = users.saveAndFlush(User.create(
                 "host-" + UUID.randomUUID() + "@example.com", "encoded", UserRole.HOST
@@ -111,9 +144,7 @@ class BookingMappingTest {
                 LocalDate.of(2026, 1, 10), guestId,
                 new PropertyBookingView(propertyId, hostId, money("125.50"), 3, true), 2
         );
-        entityManager.persist(booking);
-        entityManager.flush();
-        return booking;
+        return bookings.saveAndFlush(booking);
     }
 
     private static Money money(String amount) {
