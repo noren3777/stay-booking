@@ -1,10 +1,10 @@
 package dev.noren.staybooking.booking.internal.domain.entity;
 
 import dev.noren.staybooking.booking.internal.domain.DateRange;
+import dev.noren.staybooking.booking.internal.domain.input.CreateBookingDetails;
 import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionException;
-import dev.noren.staybooking.property.api.view.PropertyBookingView;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -22,8 +22,8 @@ class BookingTest {
 
     @Test
     void createsPendingBookingTodayWithExactPriceSnapshot() {
-        Booking booking = Booking.create(dates(TODAY, 3), TODAY, GUEST_ID,
-                property("125.25", true), 2);
+        Booking booking = Booking.create(details(dates(TODAY, 3), TODAY, GUEST_ID,
+                money("125.25"), true, 2));
 
         assertThat(booking.getPropertyId()).isEqualTo(PROPERTY_ID);
         assertThat(booking.getGuestId()).isEqualTo(GUEST_ID);
@@ -34,43 +34,43 @@ class BookingTest {
         assertThat(booking.getTotalPrice()).isEqualTo(money("375.75"));
         assertThat(booking.getStatus()).isEqualTo(BookingStatus.PENDING_PAYMENT);
 
-        Booking futureBooking = Booking.create(dates(TODAY.plusDays(1), 1), TODAY, GUEST_ID,
-                property("10.00", true), 1);
+        Booking futureBooking = Booking.create(details(dates(TODAY.plusDays(1), 1), TODAY,
+                GUEST_ID, money("10.00"), true, 1));
         assertThat(futureBooking.getCheckIn()).isEqualTo(TODAY.plusDays(1));
     }
 
     @Test
     void rejectsPastCheckInAndMissingDateInputs() {
-        assertInvalid(() -> Booking.create(dates(TODAY.minusDays(1), 1), TODAY,
-                GUEST_ID, property("10.00", true), 1));
-        assertInvalid(() -> Booking.create(null, TODAY, GUEST_ID,
-                property("10.00", true), 1));
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), null, GUEST_ID,
-                property("10.00", true), 1));
+        assertInvalid(() -> Booking.create(details(dates(TODAY.minusDays(1), 1), TODAY,
+                GUEST_ID, money("10.00"), true, 1)));
+        assertInvalid(() -> Booking.create(details(null, TODAY,
+                GUEST_ID, money("10.00"), true, 1)));
+        assertInvalid(() -> Booking.create(details(dates(TODAY, 1), null,
+                GUEST_ID, money("10.00"), true, 1)));
     }
 
     @Test
-    void rejectsInvalidGuestsAndIncompletePropertyFacts() {
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                property("10.00", true), 0));
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                property("10.00", true), 3));
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, null,
-                property("10.00", true), 1));
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                null, 1));
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                new PropertyBookingView(null, HOST_ID, money("10.00"), 2, true), 1));
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                new PropertyBookingView(PROPERTY_ID, null, money("10.00"), 2, true), 1));
+    void rejectsInvalidGuestsAndIncompleteInputs() {
+        assertInvalid(() -> Booking.create(details(dates(TODAY, 1), TODAY,
+                GUEST_ID, money("10.00"), true, 0)));
+        assertInvalid(() -> Booking.create(details(dates(TODAY, 1), TODAY,
+                GUEST_ID, money("10.00"), true, 3)));
+        assertInvalid(() -> Booking.create(details(dates(TODAY, 1), TODAY,
+                null, money("10.00"), true, 1)));
+        assertInvalid(() -> Booking.create(new CreateBookingDetails(
+                dates(TODAY, 1), TODAY, GUEST_ID, null, HOST_ID, money("10.00"), 2, true, 1
+        )));
+        assertInvalid(() -> Booking.create(new CreateBookingDetails(
+                dates(TODAY, 1), TODAY, GUEST_ID, PROPERTY_ID, null, money("10.00"), 2, true, 1
+        )));
     }
 
     @Test
     void rejectsOwnAndNonBookableProperty() {
-        assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, HOST_ID,
-                property("10.00", true), 1));
-        assertThatThrownBy(() -> Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                property("10.00", false), 1))
+        assertInvalid(() -> Booking.create(details(dates(TODAY, 1), TODAY,
+                HOST_ID, money("10.00"), true, 1)));
+        assertThatThrownBy(() -> Booking.create(details(dates(TODAY, 1), TODAY,
+                GUEST_ID, money("10.00"), false, 1)))
                 .isInstanceOf(InvalidDomainTransitionException.class);
     }
 
@@ -78,29 +78,31 @@ class BookingTest {
     void rejectsMissingZeroAndOutOfRangeNightlyPrice() {
         for (Money price : new Money[]{null, money("0.00"), money("-1.00"),
                 money("10000000000.00")}) {
-            assertInvalid(() -> Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                    new PropertyBookingView(PROPERTY_ID, HOST_ID, price, 2, true), 1));
+            assertInvalid(() -> Booking.create(details(dates(TODAY, 1), TODAY,
+                    GUEST_ID, price, true, 1)));
         }
     }
 
     @Test
     void acceptsMaximumTotalAndRejectsOverflow() {
-        Booking maximumNightlyPrice = Booking.create(dates(TODAY, 1), TODAY, GUEST_ID,
-                property("9999999999.99", true), 1);
-        Booking atLimit = Booking.create(dates(TODAY, 3), TODAY, GUEST_ID,
-                property("3333333333.33", true), 1);
+        Booking maximumNightlyPrice = Booking.create(details(dates(TODAY, 1), TODAY,
+                GUEST_ID, money("9999999999.99"), true, 1));
+        Booking atLimit = Booking.create(details(dates(TODAY, 3), TODAY,
+                GUEST_ID, money("3333333333.33"), true, 1));
 
         assertThat(maximumNightlyPrice.getTotalPrice()).isEqualTo(money("9999999999.99"));
         assertThat(atLimit.getTotalPrice()).isEqualTo(money("9999999999.99"));
-        assertInvalid(() -> Booking.create(dates(TODAY, 3), TODAY, GUEST_ID,
-                property("3333333333.34", true), 1));
+        assertInvalid(() -> Booking.create(details(dates(TODAY, 3), TODAY,
+                GUEST_ID, money("3333333333.34"), true, 1)));
     }
 
     @Test
-    void keepsPriceSnapshotWhenLaterPropertyViewHasDifferentPrice() {
-        PropertyBookingView original = property("100.00", true);
-        Booking booking = Booking.create(dates(TODAY, 2), TODAY, GUEST_ID, original, 1);
-        PropertyBookingView changed = property("150.00", true);
+    void keepsPriceSnapshotWhenLaterInputHasDifferentPrice() {
+        CreateBookingDetails original = details(dates(TODAY, 2), TODAY,
+                GUEST_ID, money("100.00"), true, 1);
+        Booking booking = Booking.create(original);
+        CreateBookingDetails changed = details(dates(TODAY, 2), TODAY,
+                GUEST_ID, money("150.00"), true, 1);
 
         assertThat(changed.pricePerNight()).isNotEqualTo(original.pricePerNight());
         assertThat(booking.getPricePerNightSnapshot()).isEqualTo(money("100.00"));
@@ -111,8 +113,13 @@ class BookingTest {
         return new DateRange(checkIn, checkIn.plusDays(nights));
     }
 
-    private static PropertyBookingView property(String price, boolean bookable) {
-        return new PropertyBookingView(PROPERTY_ID, HOST_ID, money(price), 2, bookable);
+    private static CreateBookingDetails details(
+            DateRange dates, LocalDate today, UUID guestId, Money price,
+            boolean bookable, int numberOfGuests
+    ) {
+        return new CreateBookingDetails(
+                dates, today, guestId, PROPERTY_ID, HOST_ID, price, 2, bookable, numberOfGuests
+        );
     }
 
     private static Money money(String amount) {

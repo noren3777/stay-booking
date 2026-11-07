@@ -1,12 +1,12 @@
 package dev.noren.staybooking.booking.internal.domain.entity;
 
 import dev.noren.staybooking.booking.internal.domain.DateRange;
+import dev.noren.staybooking.booking.internal.domain.input.CreateBookingDetails;
 import dev.noren.staybooking.booking.internal.persistence.BookingRepository;
 import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.identity.internal.domain.entity.User;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
 import dev.noren.staybooking.identity.internal.persistence.UserRepository;
-import dev.noren.staybooking.property.api.view.PropertyBookingView;
 import dev.noren.staybooking.property.internal.domain.entity.Property;
 import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
 import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
@@ -139,11 +139,11 @@ class BookingMappingTest {
         property.activate();
         UUID propertyId = properties.saveAndFlush(property).getId();
 
-        Booking booking = Booking.create(
+        Booking booking = Booking.create(new CreateBookingDetails(
                 new DateRange(LocalDate.of(2026, 1, 10), LocalDate.of(2026, 1, 12)),
-                LocalDate.of(2026, 1, 10), guestId,
-                new PropertyBookingView(propertyId, hostId, money("125.50"), 3, true), 2
-        );
+                LocalDate.of(2026, 1, 10), guestId, propertyId, hostId,
+                money("125.50"), 3, true, 2
+        ));
         return bookings.saveAndFlush(booking);
     }
 

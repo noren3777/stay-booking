@@ -1,6 +1,6 @@
 @ApplicationModule(
         displayName = "Booking",
-        allowedDependencies = {"bootstrap", "property::api"}
+        allowedDependencies = {"bootstrap", "identity::api", "property::api"}
 )
 package dev.noren.staybooking.booking;
 

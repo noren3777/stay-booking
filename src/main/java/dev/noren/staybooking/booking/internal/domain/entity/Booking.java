@@ -1,12 +1,12 @@
 package dev.noren.staybooking.booking.internal.domain.entity;
 
 import dev.noren.staybooking.booking.internal.domain.DateRange;
+import dev.noren.staybooking.booking.internal.domain.input.CreateBookingDetails;
 import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.bootstrap.entity.BaseEntity;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionException;
 import dev.noren.staybooking.bootstrap.persistence.converter.MoneyConverter;
-import dev.noren.staybooking.property.api.view.PropertyBookingView;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -66,28 +66,25 @@ public class Booking extends BaseEntity {
     @Column(nullable = false, length = 20)
     private BookingStatus status;
 
-    public static Booking create(
-            DateRange dates,
-            LocalDate today,
-            UUID guestId,
-            PropertyBookingView property,
-            int numberOfGuests
-    ) {
-        validateDates(dates, today);
-        validateGuestId(guestId);
-        validatePropertyFacts(property);
-        validateNumberOfGuests(numberOfGuests, property.maxGuests());
-        validateNotOwner(guestId, property.hostId());
-        validateBookable(property);
-        Money price = validatePrice(property.pricePerNight());
-        Money total = calculateTotal(price, dates.nights());
+    public static Booking create(CreateBookingDetails details) {
+        if (details == null) {
+            throw new InvalidDomainArgumentException("details must not be null");
+        }
+        validateDates(details.dates(), details.today());
+        validateGuestId(details.guestId());
+        validatePropertyFacts(details.propertyId(), details.hostId());
+        validateNumberOfGuests(details.numberOfGuests(), details.maxGuests());
+        validateNotOwner(details.guestId(), details.hostId());
+        validateBookable(details.bookable());
+        Money price = validatePrice(details.pricePerNight());
+        Money total = calculateTotal(price, details.dates().nights());
 
         Booking booking = new Booking();
-        booking.propertyId = property.id();
-        booking.guestId = guestId;
-        booking.checkIn = dates.checkIn();
-        booking.checkOut = dates.checkOut();
-        booking.numberOfGuests = numberOfGuests;
+        booking.propertyId = details.propertyId();
+        booking.guestId = details.guestId();
+        booking.checkIn = details.dates().checkIn();
+        booking.checkOut = details.dates().checkOut();
+        booking.numberOfGuests = details.numberOfGuests();
         booking.pricePerNightSnapshot = price;
         booking.totalPrice = total;
         booking.status = BookingStatus.PENDING_PAYMENT;
@@ -109,8 +106,8 @@ public class Booking extends BaseEntity {
         }
     }
 
-    private static void validatePropertyFacts(PropertyBookingView property) {
-        if (property == null || property.id() == null || property.hostId() == null) {
+    private static void validatePropertyFacts(UUID propertyId, UUID hostId) {
+        if (propertyId == null || hostId == null) {
             throw new InvalidDomainArgumentException("property booking facts must be complete");
         }
     }
@@ -127,15 +124,18 @@ public class Booking extends BaseEntity {
         }
     }
 
-    private static void validateBookable(PropertyBookingView property) {
-        if (!property.bookable()) {
+    private static void validateBookable(boolean bookable) {
+        if (!bookable) {
             throw new InvalidDomainTransitionException("property is not bookable");
         }
     }
 
     private static Money validatePrice(Money price) {
-        if (price == null || price.amount().signum() <= 0 || price.compareTo(MAX_AMOUNT) > 0) {
-            throw new InvalidDomainArgumentException("pricePerNight must be positive and fit NUMERIC(12,2)");
+        if (price == null || price.amount().signum() <= 0) {
+            throw new InvalidDomainArgumentException("pricePerNight must be positive");
+        }
+        if (price.compareTo(MAX_AMOUNT) > 0) {
+            throw new InvalidDomainArgumentException("pricePerNight is too large");
         }
         return price;
     }
@@ -143,7 +143,7 @@ public class Booking extends BaseEntity {
     private static Money calculateTotal(Money price, long nights) {
         Money total = price.multiply(nights);
         if (total.compareTo(MAX_AMOUNT) > 0) {
-            throw new InvalidDomainArgumentException("totalPrice must fit NUMERIC(12,2)");
+            throw new InvalidDomainArgumentException("totalPrice is too large");
         }
         return total;
     }
