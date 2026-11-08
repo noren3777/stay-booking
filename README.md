@@ -68,7 +68,7 @@ java -jar target/stay-booking-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
 
 The `prod` profile uses external database credentials and a JWT signing secret. The identity/security foundation is implemented: registration, login, current-user lookup, BCrypt password hashing, stateless JWT access tokens, and role authorization.
 
-The Property rich aggregate supports creation, details and price/capacity updates, activation/deactivation, admin block/unblock and host reassignment, soft deletion, amenity selection, and image metadata. Changes to an existing property require an `If-Match` version ETag. The cross-module Property API is available; Booking, Payment, and Review use cases are pending.
+The Property rich aggregate supports creation, details and price/capacity updates, activation/deactivation, admin block/unblock and host reassignment, soft deletion, amenity selection, and image metadata. Changes to an existing property require an `If-Match` version ETag. The cross-module Property API is available. Booking creation is implemented; Payment and Review use cases are pending.
 
 Database connection variables and `JWT_SECRET_BASE64` are required when using the `prod` profile. Supply a persistent JWT secret from your secret manager:
 
@@ -97,6 +97,14 @@ The catalog uses composable Spring Data JPA `Specification` predicates because s
 `property.api.PropertyApi.findForBooking(propertyId)` returns an `Optional<PropertyBookingView>` containing only `id`, `hostId`, `pricePerNight` (`Money` with scale 2), `maxGuests`, and `bookable`. Active properties are bookable; inactive and blocked properties return a view with `bookable=false`. Missing and soft-deleted properties return `Optional.empty()`.
 
 Consumers depend on `property::api`; the implementation and repository remain internal. Add a field to this contract only when a confirmed consumer business requirement needs it. The API supplies Property facts without checking booking dates or interval availability.
+
+## Booking Creation
+
+An authenticated `GUEST` can create a booking with `POST /api/bookings` and a JSON body containing `propertyId` (UUID), `checkIn` and `checkOut` (ISO dates), and positive `numberOfGuests`. `checkOut` must be later than `checkIn`; `checkIn` may be today or later. The property must exist, be active, and accommodate the guests. The server determines `guestId`, price, and status.
+
+The response is `201 Created` with `id`, `propertyId`, `guestId`, dates, guest count, `pricePerNightSnapshot`, `totalPrice`, and `status: "PENDING_PAYMENT"`. There is no `Location` header until a Booking GET endpoint exists. Invalid input returns `400`, a missing token `401`, a non-guest token `403`, a missing or deleted property `404`, and an inactive or blocked property `409`. These errors use the existing `ProblemDetail` format.
+
+This creates a pending record; it does not process payment or confirm the stay. Stage 7 does not guarantee that the dates are free. Concurrent overlapping bookings can still be inserted; stage 8 will add the database constraint and concurrent test.
 
 ## Stop the Environment
 
