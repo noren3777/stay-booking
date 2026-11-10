@@ -1,10 +1,12 @@
 package dev.noren.staybooking.booking.internal.application.service;
 
 import dev.noren.staybooking.booking.internal.application.authorization.BookingAuthorization;
+import dev.noren.staybooking.booking.internal.application.exception.BookingConflictException;
 import dev.noren.staybooking.booking.internal.application.mapper.BookingApplicationMapper;
 import dev.noren.staybooking.booking.internal.application.result.BookingResult;
 import dev.noren.staybooking.booking.internal.domain.DateRange;
 import dev.noren.staybooking.booking.internal.domain.entity.Booking;
+import dev.noren.staybooking.booking.internal.domain.entity.BookingStatus;
 import dev.noren.staybooking.booking.internal.domain.input.CreateBookingDetails;
 import dev.noren.staybooking.booking.internal.persistence.BookingRepository;
 import dev.noren.staybooking.bootstrap.exception.EntityNotFoundException;
@@ -43,8 +45,15 @@ public class BookingService {
         CreateBookingDetails details = mapper.toCreateDetails(
                 dates, LocalDate.now(clock), actor.id(), property, numberOfGuests
         );
-
         Booking booking = Booking.create(details);
+
+        boolean overlapping = bookings.existsOverlapping(
+                propertyId, booking.getCheckIn(), booking.getCheckOut(), BookingStatus.OCCUPYING_DATES
+        );
+        if (overlapping) {
+            throw new BookingConflictException();
+        }
+
         Booking saved = bookings.saveAndFlush(booking);
 
         return mapper.toResult(saved);

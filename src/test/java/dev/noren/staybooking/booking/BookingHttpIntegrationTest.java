@@ -201,6 +201,27 @@ class BookingHttpIntegrationTest {
         assertThat(bookings.count()).isEqualTo(bookingsBefore);
     }
 
+    @Test
+    void existingOverlapReturnsStableConflictProblem() {
+        String token = login(saveUser(ActorRole.GUEST));
+        UUID propertyId = saveProperty(true);
+        Map<String, Object> body = request(propertyId, TODAY, TODAY.plusDays(2), 1);
+
+        http.post().uri("/api/bookings")
+                .headers(headers -> headers.setBearerAuth(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body).exchange().expectStatus().isCreated()
+                .expectBody(BookingResponse.class);
+
+        http.post().uri("/api/bookings")
+                .headers(headers -> headers.setBearerAuth(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body).exchange().expectStatus().isEqualTo(409)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody().jsonPath("$.status").isEqualTo(409)
+                .jsonPath("$.detail").isEqualTo("Dates are unavailable for this property");
+    }
+
     private void assertNotFound(String token, UUID propertyId) {
         http.post().uri("/api/bookings")
                 .headers(headers -> headers.setBearerAuth(token))
