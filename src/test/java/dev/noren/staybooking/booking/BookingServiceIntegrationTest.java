@@ -6,19 +6,14 @@ import dev.noren.staybooking.booking.internal.domain.DateRange;
 import dev.noren.staybooking.booking.internal.domain.entity.Booking;
 import dev.noren.staybooking.booking.internal.domain.entity.BookingStatus;
 import dev.noren.staybooking.booking.internal.persistence.BookingRepository;
-import dev.noren.staybooking.bootstrap.domain.FieldChange;
 import dev.noren.staybooking.bootstrap.domain.Money;
 import dev.noren.staybooking.bootstrap.exception.EntityNotFoundException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainTransitionException;
-import dev.noren.staybooking.identity.internal.domain.entity.User;
-import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
-import dev.noren.staybooking.identity.internal.persistence.UserRepository;
+import dev.noren.staybooking.identity.IdentityBookingTestFixtures;
+import dev.noren.staybooking.identity.api.view.ActorRole;
 import dev.noren.staybooking.property.api.PropertyApi;
-import dev.noren.staybooking.property.internal.domain.entity.Property;
-import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
-import dev.noren.staybooking.property.internal.domain.input.PropertyDetailsPatch;
-import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
+import dev.noren.staybooking.property.PropertyBookingTestFixtures;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.AfterEach;
@@ -69,9 +64,7 @@ class BookingServiceIntegrationTest {
 
     private final BookingService service;
     private final BookingRepository bookings;
-    private final PropertyRepository properties;
     private final PropertyApi propertyApi;
-    private final UserRepository users;
     private final TransactionTemplate transactions;
     private final EntityManager entityManager;
 
@@ -91,9 +84,9 @@ class BookingServiceIntegrationTest {
 
     @Test
     void savesPendingBookingThroughProxyAndKeepsPriceSnapshotAfterPropertyChange() {
-        UUID guestId = saveUser(UserRole.GUEST);
+        UUID guestId = saveUser(ActorRole.GUEST);
         UUID propertyId = saveProperty(true);
-        authenticate(guestId, UserRole.GUEST);
+        authenticate(guestId, ActorRole.GUEST);
 
         BookingResult result = service.create(propertyId, dates(TODAY, 2), 2);
         assertThat(result.id()).isNotNull();
@@ -106,12 +99,8 @@ class BookingServiceIntegrationTest {
         assertThat(result.totalPrice()).isEqualTo(money("251.00"));
         assertThat(result.status()).isEqualTo(BookingStatus.PENDING_PAYMENT);
 
-        transactions.executeWithoutResult(status -> {
-            Property property = properties.findById(propertyId).orElseThrow();
-            property.updateDetails(new PropertyDetailsPatch(
-                    null, null, null, null, null, new FieldChange<>(true, money("150.00")), null
-            ));
-        });
+        transactions.executeWithoutResult(status ->
+                PropertyBookingTestFixtures.updatePrice(entityManager, propertyId, money("150.00")));
         assertThat(propertyApi.findForBooking(propertyId).orElseThrow().pricePerNight())
                 .isEqualTo(money("150.00"));
 
@@ -123,24 +112,24 @@ class BookingServiceIntegrationTest {
 
     @Test
     void rejectsMissingAndSoftDeletedProperty() {
-        UUID guestId = saveUser(UserRole.GUEST);
-        authenticate(guestId, UserRole.GUEST);
+        UUID guestId = saveUser(ActorRole.GUEST);
+        authenticate(guestId, ActorRole.GUEST);
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), dates(TODAY, 1), 1))
                 .isInstanceOf(EntityNotFoundException.class);
 
         UUID propertyId = saveProperty(true);
-        transactions.executeWithoutResult(status -> properties.findById(propertyId).orElseThrow().delete());
+        transactions.executeWithoutResult(status -> PropertyBookingTestFixtures.delete(entityManager, propertyId));
         assertThatThrownBy(() -> service.create(propertyId, dates(TODAY, 1), 1))
                 .isInstanceOf(EntityNotFoundException.class);
     }
 
     @Test
     void rejectsInactiveAndBlockedProperty() {
-        UUID guestId = saveUser(UserRole.GUEST);
-        authenticate(guestId, UserRole.GUEST);
+        UUID guestId = saveUser(ActorRole.GUEST);
+        authenticate(guestId, ActorRole.GUEST);
         UUID inactiveId = saveProperty(false);
         UUID blockedId = saveProperty(true);
-        transactions.executeWithoutResult(status -> properties.findById(blockedId).orElseThrow().block());
+        transactions.executeWithoutResult(status -> PropertyBookingTestFixtures.block(entityManager, blockedId));
 
         assertThatThrownBy(() -> service.create(inactiveId, dates(TODAY, 1), 1))
                 .isInstanceOf(InvalidDomainTransitionException.class);
@@ -151,12 +140,12 @@ class BookingServiceIntegrationTest {
     @Test
     void rejectsWrongRoleAndInvalidInputsOutsideHttp() {
         UUID propertyId = saveProperty(true);
-        UUID hostId = saveUser(UserRole.HOST);
-        authenticate(hostId, UserRole.HOST);
+        UUID hostId = saveUser(ActorRole.HOST);
+        authenticate(hostId, ActorRole.HOST);
         assertThatThrownBy(() -> service.create(propertyId, dates(TODAY, 1), 1))
                 .isInstanceOf(AccessDeniedException.class);
 
-        authenticate(saveUser(UserRole.GUEST), UserRole.GUEST);
+        authenticate(saveUser(ActorRole.GUEST), ActorRole.GUEST);
         assertThatThrownBy(() -> service.create(null, dates(TODAY, 1), 1))
                 .isInstanceOf(InvalidDomainArgumentException.class);
         assertThatThrownBy(() -> service.create(propertyId, dates(TODAY.minusDays(1), 1), 1))
@@ -170,32 +159,26 @@ class BookingServiceIntegrationTest {
     void flushFailureRollsBackBooking() {
         UUID propertyId = saveProperty(true);
         UUID missingGuestId = UUID.randomUUID();
-        authenticate(missingGuestId, UserRole.GUEST);
+        authenticate(missingGuestId, ActorRole.GUEST);
 
         assertThatThrownBy(() -> service.create(propertyId, dates(TODAY, 1), 1))
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThat(bookings.count()).isZero();
     }
 
-    private UUID saveUser(UserRole role) {
-        return users.saveAndFlush(User.create(
-                role.name().toLowerCase() + "-" + UUID.randomUUID() + "@example.com", "encoded", role
-        )).getId();
+    private UUID saveUser(ActorRole role) {
+        return transactions.execute(status ->
+                IdentityBookingTestFixtures.persistUser(entityManager, role, "encoded").id());
     }
 
     private UUID saveProperty(boolean active) {
-        UUID hostId = saveUser(UserRole.HOST);
-        Property property = Property.create(hostId, new CreatePropertyDetails(
-                "Flat near the park", null, "Ukraine", "Kyiv", "14 Khreshchatyk Street",
-                money("125.50"), 3
+        UUID hostId = saveUser(ActorRole.HOST);
+        return transactions.execute(status -> PropertyBookingTestFixtures.persistProperty(
+                entityManager, hostId, money("125.50"), active
         ));
-        if (active) {
-            property.activate();
-        }
-        return properties.saveAndFlush(property).getId();
     }
 
-    private static void authenticate(UUID id, UserRole role) {
+    private static void authenticate(UUID id, ActorRole role) {
         Jwt jwt = Jwt.withTokenValue("booking-application-test")
                 .header("alg", "none")
                 .subject(id.toString())

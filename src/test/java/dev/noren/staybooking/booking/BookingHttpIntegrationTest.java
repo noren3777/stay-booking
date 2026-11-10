@@ -5,13 +5,9 @@ import dev.noren.staybooking.booking.internal.domain.entity.BookingStatus;
 import dev.noren.staybooking.booking.internal.persistence.BookingRepository;
 import dev.noren.staybooking.booking.internal.web.response.BookingResponse;
 import dev.noren.staybooking.bootstrap.domain.Money;
-import dev.noren.staybooking.identity.internal.application.result.TokenResult;
-import dev.noren.staybooking.identity.internal.domain.entity.User;
-import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
-import dev.noren.staybooking.identity.internal.persistence.UserRepository;
-import dev.noren.staybooking.property.internal.domain.entity.Property;
-import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
-import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
+import dev.noren.staybooking.identity.IdentityBookingTestFixtures;
+import dev.noren.staybooking.identity.api.view.ActorRole;
+import dev.noren.staybooking.property.PropertyBookingTestFixtures;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
@@ -65,8 +61,6 @@ class BookingHttpIntegrationTest {
                     .withPassword("test");
 
     private final RestTestClient http;
-    private final UserRepository users;
-    private final PropertyRepository properties;
     private final BookingRepository bookings;
     private final PasswordEncoder encoder;
     private final TransactionTemplate transactions;
@@ -83,7 +77,7 @@ class BookingHttpIntegrationTest {
 
     @Test
     void guestCreatesPendingBookingAndStoredSnapshotMatchesResponse() {
-        User guest = saveUser(UserRole.GUEST);
+        IdentityBookingTestFixtures.TestUser guest = saveUser(ActorRole.GUEST);
         UUID propertyId = saveProperty(true);
 
         var exchange = http.post().uri("/api/bookings")
@@ -98,7 +92,7 @@ class BookingHttpIntegrationTest {
         assertThat(response).isNotNull();
         assertThat(response.id()).isNotNull();
         assertThat(response.propertyId()).isEqualTo(propertyId);
-        assertThat(response.guestId()).isEqualTo(guest.getId());
+        assertThat(response.guestId()).isEqualTo(guest.id());
         assertThat(response.checkIn()).isEqualTo(TODAY);
         assertThat(response.checkOut()).isEqualTo(TODAY.plusDays(2));
         assertThat(response.numberOfGuests()).isEqualTo(2);
@@ -130,7 +124,7 @@ class BookingHttpIntegrationTest {
                 .expectBody().jsonPath("$.status").isEqualTo(401)
                 .jsonPath("$.detail").isEqualTo("Authentication required");
         http.post().uri("/api/bookings")
-                .headers(headers -> headers.setBearerAuth(login(saveUser(UserRole.HOST))))
+                .headers(headers -> headers.setBearerAuth(login(saveUser(ActorRole.HOST))))
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body).exchange().expectStatus().isForbidden()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
@@ -142,7 +136,7 @@ class BookingHttpIntegrationTest {
     @Test
     void requestShapeAndBusinessDatesReturnStableBadRequest() {
         long bookingsBefore = bookings.count();
-        User guest = saveUser(UserRole.GUEST);
+        IdentityBookingTestFixtures.TestUser guest = saveUser(ActorRole.GUEST);
         String token = login(guest);
         UUID propertyId = saveProperty(true);
 
@@ -185,11 +179,11 @@ class BookingHttpIntegrationTest {
     @Test
     void missingAndSoftDeletedPropertyReturnNotFound() {
         long bookingsBefore = bookings.count();
-        String token = login(saveUser(UserRole.GUEST));
+        String token = login(saveUser(ActorRole.GUEST));
         assertNotFound(token, UUID.randomUUID());
 
         UUID deletedId = saveProperty(true);
-        transactions.executeWithoutResult(status -> properties.findById(deletedId).orElseThrow().delete());
+        transactions.executeWithoutResult(status -> PropertyBookingTestFixtures.delete(entityManager, deletedId));
         assertNotFound(token, deletedId);
         assertThat(bookings.count()).isEqualTo(bookingsBefore);
     }
@@ -197,10 +191,10 @@ class BookingHttpIntegrationTest {
     @Test
     void inactiveAndBlockedPropertyReturnConflict() {
         long bookingsBefore = bookings.count();
-        String token = login(saveUser(UserRole.GUEST));
+        String token = login(saveUser(ActorRole.GUEST));
         UUID inactiveId = saveProperty(false);
         UUID blockedId = saveProperty(true);
-        transactions.executeWithoutResult(status -> properties.findById(blockedId).orElseThrow().block());
+        transactions.executeWithoutResult(status -> PropertyBookingTestFixtures.block(entityManager, blockedId));
 
         assertConflict(token, inactiveId);
         assertConflict(token, blockedId);
@@ -227,32 +221,27 @@ class BookingHttpIntegrationTest {
                 .jsonPath("$.detail").isEqualTo("property is not bookable");
     }
 
-    private User saveUser(UserRole role) {
-        return users.saveAndFlush(User.create(
-                role.name().toLowerCase() + "-" + UUID.randomUUID() + "@example.com",
-                encoder.encode(PASSWORD), role
+    private IdentityBookingTestFixtures.TestUser saveUser(ActorRole role) {
+        return transactions.execute(status -> IdentityBookingTestFixtures.persistUser(
+                entityManager, role, encoder.encode(PASSWORD)
         ));
     }
 
     private UUID saveProperty(boolean active) {
-        Property property = Property.create(saveUser(UserRole.HOST).getId(), new CreatePropertyDetails(
-                "Flat near the park", null, "Ukraine", "Kyiv", "14 Khreshchatyk Street",
-                Money.of(new BigDecimal("125.50")), 3
+        UUID hostId = saveUser(ActorRole.HOST).id();
+        return transactions.execute(status -> PropertyBookingTestFixtures.persistProperty(
+                entityManager, hostId, Money.of(new BigDecimal("125.50")), active
         ));
-        if (active) {
-            property.activate();
-        }
-        return properties.saveAndFlush(property).getId();
     }
 
-    private String login(User user) {
-        TokenResult result = http.post().uri("/api/auth/login")
+    private String login(IdentityBookingTestFixtures.TestUser user) {
+        Map<?, ?> result = http.post().uri("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("email", user.getEmail(), "password", PASSWORD))
+                .body(Map.of("email", user.email(), "password", PASSWORD))
                 .exchange().expectStatus().isOk()
-                .expectBody(TokenResult.class).returnResult().getResponseBody();
+                .expectBody(Map.class).returnResult().getResponseBody();
         assertThat(result).isNotNull();
-        return result.token();
+        return (String) result.get("token");
     }
 
     private static Map<String, Object> request(UUID propertyId, LocalDate checkIn, LocalDate checkOut, int guests) {

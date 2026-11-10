@@ -4,12 +4,9 @@ import dev.noren.staybooking.booking.internal.domain.DateRange;
 import dev.noren.staybooking.booking.internal.domain.input.CreateBookingDetails;
 import dev.noren.staybooking.booking.internal.persistence.BookingRepository;
 import dev.noren.staybooking.bootstrap.domain.Money;
-import dev.noren.staybooking.identity.internal.domain.entity.User;
-import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
-import dev.noren.staybooking.identity.internal.persistence.UserRepository;
-import dev.noren.staybooking.property.internal.domain.entity.Property;
-import dev.noren.staybooking.property.internal.domain.input.CreatePropertyDetails;
-import dev.noren.staybooking.property.internal.persistence.repository.PropertyRepository;
+import dev.noren.staybooking.identity.IdentityBookingTestFixtures;
+import dev.noren.staybooking.identity.api.view.ActorRole;
+import dev.noren.staybooking.property.PropertyBookingTestFixtures;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
@@ -50,8 +47,6 @@ class BookingMappingTest {
                     .withUsername("test")
                     .withPassword("test");
 
-    private final UserRepository users;
-    private final PropertyRepository properties;
     private final BookingRepository bookings;
     private final EntityManager entityManager;
     private final JdbcTemplate jdbc;
@@ -126,18 +121,11 @@ class BookingMappingTest {
     }
 
     private Booking saveBooking() {
-        UUID hostId = users.saveAndFlush(User.create(
-                "host-" + UUID.randomUUID() + "@example.com", "encoded", UserRole.HOST
-        )).getId();
-        UUID guestId = users.saveAndFlush(User.create(
-                "guest-" + UUID.randomUUID() + "@example.com", "encoded", UserRole.GUEST
-        )).getId();
-        Property property = Property.create(hostId, new CreatePropertyDetails(
-                "Flat near the park", null, "Ukraine", "Kyiv", "14 Khreshchatyk Street",
-                money("125.50"), 3
-        ));
-        property.activate();
-        UUID propertyId = properties.saveAndFlush(property).getId();
+        UUID hostId = IdentityBookingTestFixtures.persistUser(entityManager, ActorRole.HOST, "encoded").id();
+        UUID guestId = IdentityBookingTestFixtures.persistUser(entityManager, ActorRole.GUEST, "encoded").id();
+        UUID propertyId = PropertyBookingTestFixtures.persistProperty(
+                entityManager, hostId, money("125.50"), true
+        );
 
         Booking booking = Booking.create(new CreateBookingDetails(
                 new DateRange(LocalDate.of(2026, 1, 10), LocalDate.of(2026, 1, 12)),
