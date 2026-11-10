@@ -1,9 +1,13 @@
 package dev.noren.staybooking.identity.internal.security;
 
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -16,7 +20,12 @@ import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
+import org.springframework.security.oauth2.server.resource.web.access.BearerTokenAccessDeniedHandler;
 import org.springframework.security.web.SecurityFilterChain;
+import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
 
 @Configuration
 @EnableMethodSecurity
@@ -25,7 +34,8 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            JwtAuthenticationConverter jwtAuthenticationConverter
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            ObjectMapper objectMapper
     ) {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -46,10 +56,29 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest()
                         .authenticated())
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, exception) -> {
+                            new BearerTokenAuthenticationEntryPoint().commence(request, response, exception);
+                            writeProblem(response, objectMapper, HttpStatus.UNAUTHORIZED, "Authentication required");
+                        })
+                        .accessDeniedHandler((request, response, exception) -> {
+                            new BearerTokenAccessDeniedHandler().handle(request, response, exception);
+                            writeProblem(response, objectMapper, HttpStatus.FORBIDDEN, "Access denied");
+                        }))
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter)))
                 .build();
+    }
+
+    private static void writeProblem(
+            HttpServletResponse response,
+            ObjectMapper objectMapper,
+            HttpStatus status,
+            String detail
+    ) throws IOException {
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        objectMapper.writeValue(response.getOutputStream(), ProblemDetail.forStatusAndDetail(status, detail));
     }
 
     @Bean

@@ -1,8 +1,6 @@
 @ApplicationModule(
         displayName = "Review",
-        allowedDependencies = {
-                "booking::api"
-        }
+        allowedDependencies = {}
 )
 package dev.noren.staybooking.review;
 
