@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestConstructor;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
@@ -27,14 +29,24 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 @Testcontainers
 @AutoConfigureRestTestClient
@@ -61,7 +73,10 @@ class BookingHttpIntegrationTest {
                     .withPassword("test");
 
     private final RestTestClient http;
-    private final BookingRepository bookings;
+    @MockitoSpyBean
+    private BookingRepository bookings;
+    @LocalServerPort
+    private int port;
     private final PasswordEncoder encoder;
     private final TransactionTemplate transactions;
     private final EntityManager entityManager;
@@ -220,6 +235,41 @@ class BookingHttpIntegrationTest {
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.status").isEqualTo(409)
                 .jsonPath("$.detail").isEqualTo("Dates are unavailable for this property");
+    }
+
+    @Test
+    void concurrentHttpCreatesReturnCreatedAndSafeConflict() throws Exception {
+        String token = login(saveUser(ActorRole.GUEST));
+        UUID propertyId = saveProperty(true);
+        long before = bookings.count();
+        CountDownLatch bothChecked = new CountDownLatch(2);
+        doAnswer(invocation -> {
+            bothChecked.countDown();
+            assertThat(bothChecked.await(10, TimeUnit.SECONDS)).isTrue();
+            return false;
+        }).when(bookings).existsOverlapping(any(), any(), any(), any());
+
+        String body = """
+                {"propertyId":"%s","checkIn":"2026-02-10","checkOut":"2026-02-12","numberOfGuests":1}
+                """.formatted(propertyId);
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/bookings"))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+        try (HttpClient client = HttpClient.newHttpClient(); var workers = Executors.newFixedThreadPool(2)) {
+            var completions = new ExecutorCompletionService<HttpResponse<String>>(workers);
+            completions.submit(() -> client.send(request, HttpResponse.BodyHandlers.ofString()));
+            completions.submit(() -> client.send(request, HttpResponse.BodyHandlers.ofString()));
+            HttpResponse<String> first = completions.poll(15, TimeUnit.SECONDS).get();
+            HttpResponse<String> second = completions.poll(15, TimeUnit.SECONDS).get();
+            assertThat(new int[]{first.statusCode(), second.statusCode()}).containsExactlyInAnyOrder(201, 409);
+            HttpResponse<String> conflict = first.statusCode() == 409 ? first : second;
+            assertThat(conflict.headers().firstValue("Content-Type").orElseThrow())
+                    .contains("application/problem+json");
+            assertThat(conflict.body()).contains("Dates are unavailable for this property")
+                    .doesNotContain("ex_bookings_property_occupied_dates", "23P01");
+        }
+        assertThat(bookings.count()).isEqualTo(before + 1);
     }
 
     private void assertNotFound(String token, UUID propertyId) {

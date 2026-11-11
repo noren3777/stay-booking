@@ -9,12 +9,14 @@ import dev.noren.staybooking.booking.internal.domain.entity.Booking;
 import dev.noren.staybooking.booking.internal.domain.entity.BookingStatus;
 import dev.noren.staybooking.booking.internal.domain.input.CreateBookingDetails;
 import dev.noren.staybooking.booking.internal.persistence.BookingRepository;
+import dev.noren.staybooking.booking.internal.persistence.exception.BookingPersistenceExceptionTranslator;
 import dev.noren.staybooking.bootstrap.exception.EntityNotFoundException;
 import dev.noren.staybooking.bootstrap.exception.InvalidDomainArgumentException;
 import dev.noren.staybooking.identity.api.view.ActorView;
 import dev.noren.staybooking.property.api.PropertyApi;
 import dev.noren.staybooking.property.api.view.PropertyBookingView;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,7 @@ public class BookingService {
     private final BookingAuthorization authorization;
     private final PropertyApi propertyApi;
     private final BookingRepository bookings;
+    private final BookingPersistenceExceptionTranslator persistenceExceptionTranslator;
     private final BookingApplicationMapper mapper;
     private final Clock clock;
 
@@ -54,8 +57,12 @@ public class BookingService {
             throw new BookingConflictException();
         }
 
-        Booking saved = bookings.saveAndFlush(booking);
+        try {
+            Booking saved = bookings.saveAndFlush(booking);
 
-        return mapper.toResult(saved);
+            return mapper.toResult(saved);
+        } catch (DataIntegrityViolationException ex) {
+            throw persistenceExceptionTranslator.translate(ex);
+        }
     }
 }
