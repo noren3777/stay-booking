@@ -104,7 +104,13 @@ An authenticated `GUEST` can create a booking with `POST /api/bookings` and a JS
 
 The response is `201 Created` with `id`, `propertyId`, `guestId`, dates, guest count, `pricePerNightSnapshot`, `totalPrice`, and `status: "PENDING_PAYMENT"`. There is no `Location` header until a Booking GET endpoint exists. Invalid input returns `400`, a missing token `401`, a non-guest token `403`, a missing or deleted property `404`, and an inactive or blocked property `409`. These errors use the existing `ProblemDetail` format.
 
-This creates a pending record; it does not process payment or confirm the stay. Stage 7 does not guarantee that the dates are free. Concurrent overlapping bookings can still be inserted; stage 8 will add the database constraint and concurrent test.
+This creates a pending record; it does not process payment or confirm the stay. `PENDING_PAYMENT` and `CONFIRMED` bookings occupy their half-open date ranges; `CANCELLED`, `PAYMENT_FAILED`, and `COMPLETED` do not. The range `[checkIn, checkOut)` excludes checkout day, so one stay can end when another begins. A known overlap or exclusion violation returns a safe `409 ProblemDetail`.
+
+The early overlap query improves the response for dates already occupied, but two applications can both see an empty range before either inserts. Flyway migration `V7` adds a PostgreSQL exclusion constraint on `property_id` equality and overlapping (`&&`) `daterange(check_in, check_out, '[)')`. `btree_gist` supplies GiST equality for UUID property IDs. The constraint's partial predicate applies only to `PENDING_PAYMENT` and `CONFIRMED`, matching the application's occupied-date policy. PostgreSQL enforces it for every writer to the table, including concurrent or direct writes that bypass the query.
+
+Pessimistic locking would require all writers to lock the same shared row; optimistic locking would require a shared version check and handling version conflicts. Both rely on every writer following that protocol. `SERIALIZABLE` transactions require a retry policy for serialization failures, and advisory locks require all writers to acquire the same lock. The exclusion constraint expresses the invariant in the shared database without those application-level protocols.
+
+Applying `V7` to an existing database requires permission to install the `btree_gist` extension. If existing occupied bookings overlap, the migration fails without changing those bookings; resolve the conflicts before applying it. If later stages change which statuses occupy dates, update the domain policy, overlap query, and constraint together through a new migration.
 
 ## Stop the Environment
 

@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.1</version>
+        <version>4.1.2</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>dev.noren</groupId>
@@ -17,6 +17,8 @@
         <java.version>21</java.version>
         <spring-modulith.version>2.1.1</spring-modulith.version>
         <org.mapstruct.version>1.6.3</org.mapstruct.version>
+        <logback.version>1.6.5</logback.version>
+        <json-smart.version>2.6.1</json-smart.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -27,6 +29,11 @@
                 <version>${spring-modulith.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.ow2.asm</groupId>
+                <artifactId>asm</artifactId>
+                <version>9.11.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -42,7 +49,6 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
         </dependency>
 
         <!-- org.projectlombok -->
@@ -79,6 +85,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.skyscreamer</groupId>
+                    <artifactId>jsonassert</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

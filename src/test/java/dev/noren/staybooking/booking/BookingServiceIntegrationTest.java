@@ -1,5 +1,6 @@
 package dev.noren.staybooking.booking;
 
+import dev.noren.staybooking.booking.internal.application.exception.BookingConflictException;
 import dev.noren.staybooking.booking.internal.application.result.BookingResult;
 import dev.noren.staybooking.booking.internal.application.service.BookingService;
 import dev.noren.staybooking.booking.internal.domain.DateRange;
@@ -18,6 +19,9 @@ import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -141,6 +145,7 @@ class BookingServiceIntegrationTest {
     void rejectsWrongRoleAndInvalidInputsOutsideHttp() {
         UUID propertyId = saveProperty(true);
         UUID hostId = saveUser(ActorRole.HOST);
+        long bookingsBefore = bookings.count();
         authenticate(hostId, ActorRole.HOST);
         assertThatThrownBy(() -> service.create(propertyId, dates(TODAY, 1), 1))
                 .isInstanceOf(AccessDeniedException.class);
@@ -152,18 +157,75 @@ class BookingServiceIntegrationTest {
                 .isInstanceOf(InvalidDomainArgumentException.class);
         assertThatThrownBy(() -> service.create(propertyId, dates(TODAY, 1), 4))
                 .isInstanceOf(InvalidDomainArgumentException.class);
-        assertThat(bookings.count()).isZero();
+        assertThat(bookings.count()).isEqualTo(bookingsBefore);
     }
 
     @Test
     void flushFailureRollsBackBooking() {
         UUID propertyId = saveProperty(true);
         UUID missingGuestId = UUID.randomUUID();
+        long bookingsBefore = bookings.count();
         authenticate(missingGuestId, ActorRole.GUEST);
 
         assertThatThrownBy(() -> service.create(propertyId, dates(TODAY, 1), 1))
                 .isInstanceOf(DataIntegrityViolationException.class);
-        assertThat(bookings.count()).isZero();
+        assertThat(bookings.count()).isEqualTo(bookingsBefore);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "10, 14", // identical
+            "8, 12",  // overlaps the start
+            "12, 16", // overlaps the end
+            "8, 16",  // contains the existing interval
+            "11, 13"  // is contained by the existing interval
+    })
+    void rejectsKnownOverlapsForSameProperty(int checkInOffset, int checkOutOffset) {
+        UUID guestId = saveUser(ActorRole.GUEST);
+        UUID propertyId = saveProperty(true);
+        authenticate(guestId, ActorRole.GUEST);
+        service.create(propertyId, dates(TODAY.plusDays(10), 4), 1);
+        long countBefore = bookings.count();
+
+        assertThatThrownBy(() -> service.create(propertyId,
+                new DateRange(TODAY.plusDays(checkInOffset), TODAY.plusDays(checkOutOffset)), 1))
+                .isInstanceOf(BookingConflictException.class)
+                .hasMessage("Dates are unavailable for this property");
+        assertThat(bookings.count()).isEqualTo(countBefore);
+    }
+
+    @Test
+    void allowsAdjacentIntervalsAndDifferentProperty() {
+        UUID guestId = saveUser(ActorRole.GUEST);
+        UUID propertyId = saveProperty(true);
+        UUID otherPropertyId = saveProperty(true);
+        authenticate(guestId, ActorRole.GUEST);
+        service.create(propertyId, dates(TODAY.plusDays(10), 4), 1);
+
+        assertThat(service.create(propertyId, dates(TODAY.plusDays(8), 2), 1).id()).isNotNull();
+        assertThat(service.create(propertyId, dates(TODAY.plusDays(14), 2), 1).id()).isNotNull();
+        assertThat(service.create(otherPropertyId, dates(TODAY.plusDays(10), 4), 1).id()).isNotNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(BookingStatus.class)
+    void onlyOccupyingStatusesBlockDates(BookingStatus existingStatus) {
+        UUID guestId = saveUser(ActorRole.GUEST);
+        UUID propertyId = saveProperty(true);
+        authenticate(guestId, ActorRole.GUEST);
+        BookingResult existing = service.create(propertyId, dates(TODAY.plusDays(10), 4), 1);
+        transactions.executeWithoutResult(status -> entityManager.createNativeQuery(
+                        "update bookings set status = :status where id = :id")
+                .setParameter("status", existingStatus.name())
+                .setParameter("id", existing.id())
+                .executeUpdate());
+
+        if (existingStatus == BookingStatus.PENDING_PAYMENT || existingStatus == BookingStatus.CONFIRMED) {
+            assertThatThrownBy(() -> service.create(propertyId, dates(TODAY.plusDays(10), 4), 1))
+                    .isInstanceOf(BookingConflictException.class);
+        } else {
+            assertThat(service.create(propertyId, dates(TODAY.plusDays(10), 4), 1).id()).isNotNull();
+        }
     }
 
     private UUID saveUser(ActorRole role) {
