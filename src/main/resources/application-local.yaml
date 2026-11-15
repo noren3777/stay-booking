@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/staybooking}
+    username: ${DB_USERNAME:user}
+    password: ${DB_PASSWORD:password}
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
