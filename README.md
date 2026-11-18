@@ -2,6 +2,48 @@
 
 Backend application for an accommodation booking service built with Spring Boot. The project uses Java 21, Maven, PostgreSQL, Spring Data JPA, Flyway, Spring Security, and Actuator.
 
+## Module status
+
+| Module | Status | Current scope |
+| --- | --- | --- |
+| `bootstrap` | Implemented | Shared technical types, configuration, and error handling. |
+| `identity` | Implemented | Registration, login, JWT authentication, roles, and current actor API. |
+| `property` | Implemented | Property management, amenities, images, catalog, and booking facts API. |
+| `booking` | Partial | Booking creation and PostgreSQL overlap protection; payment flow is pending. |
+| `payment` | Planned | Module package only; no payment use cases yet. |
+| `review` | Planned | Module package only; no review use cases yet. |
+
+## Architecture
+
+This is one Spring Boot application with Spring Modulith package boundaries and one PostgreSQL database. Business modules access each other through their named `api` interfaces; their `internal` packages stay private. Flyway owns the schema.
+
+```mermaid
+flowchart LR
+    Clients["HTTP clients"] --> Identity
+    Clients --> Property
+    Clients --> Booking
+
+    subgraph App["Stay Booking application"]
+        Identity["identity"]
+        Property["property"]
+        Booking["booking"]
+        Payment["payment (planned)"]
+        Review["review (planned)"]
+        Bootstrap["bootstrap (shared technical code)"]
+
+        Property -->|identity::api| Identity
+        Booking -->|identity::api| Identity
+        Booking -->|property::api| Property
+        Identity --> Bootstrap
+        Property --> Bootstrap
+        Booking --> Bootstrap
+    end
+
+    Identity --> DB[(PostgreSQL)]
+    Property --> DB
+    Booking --> DB
+```
+
 ## Requirements
 
 - JDK 21
