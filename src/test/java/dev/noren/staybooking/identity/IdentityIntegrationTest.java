@@ -1,7 +1,7 @@
 package dev.noren.staybooking.identity;
 
-import dev.noren.staybooking.identity.internal.application.result.TokenResult;
-import dev.noren.staybooking.identity.internal.application.result.UserResult;
+import com.jayway.jsonpath.JsonPath;
+import dev.noren.staybooking.identity.internal.web.response.UserResponse;
 import dev.noren.staybooking.identity.internal.domain.entity.User;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
 import dev.noren.staybooking.identity.internal.persistence.UserRepository;
@@ -114,6 +114,8 @@ class IdentityIntegrationTest {
 
         assertThat(body(response.getResponseBody()))
                 .doesNotContain(PASSWORD, stored.getPasswordHash());
+        assertThat(JsonPath.<Map<String, Object>>read(body(response.getResponseBody()), "$"))
+                .containsOnlyKeys("id", "email", "role", "createdAt", "updatedAt");
     }
 
     @Test
@@ -168,7 +170,6 @@ class IdentityIntegrationTest {
     @Test
     void concurrentRegistrationsCreateExactlyOneUser() throws Exception {
         var barrier = new CyclicBarrier(2);
-        var executor = Executors.newFixedThreadPool(2);
 
         Callable<Integer> request = () -> {
             barrier.await(5, TimeUnit.SECONDS);
@@ -186,7 +187,7 @@ class IdentityIntegrationTest {
                     .value();
         };
 
-        try {
+        try (var executor = Executors.newFixedThreadPool(2)) {
             var first = executor.submit(request);
             var second = executor.submit(request);
 
@@ -194,8 +195,6 @@ class IdentityIntegrationTest {
                     first.get(20, TimeUnit.SECONDS),
                     second.get(20, TimeUnit.SECONDS)
             )).containsExactlyInAnyOrder(201, 409);
-        } finally {
-            executor.shutdownNow();
         }
 
         assertThat(users.count()).isEqualTo(1);
@@ -204,7 +203,7 @@ class IdentityIntegrationTest {
 
     @Test
     void loginReturnsJwtThatWorksForCurrentUser() {
-        UserResult created = register("alice@email.com");
+        UserResponse created = register("alice@email.com");
         String token = login("ALICE@email.com");
 
         var jwt = jwtDecoder.decode(token);
@@ -218,7 +217,7 @@ class IdentityIntegrationTest {
                 "password", "passwordHash", "password_hash", "email"
         );
 
-        http.get()
+        var currentUser = http.get()
                 .uri("/api/users/me")
                 .headers(headers -> headers.setBearerAuth(token))
                 .exchange()
@@ -228,7 +227,10 @@ class IdentityIntegrationTest {
                 .jsonPath("$.id").isEqualTo(created.id().toString())
                 .jsonPath("$.email").isEqualTo("alice@email.com")
                 .jsonPath("$.role").isEqualTo("GUEST")
-                .jsonPath("$.passwordHash").doesNotExist();
+                .jsonPath("$.passwordHash").doesNotExist()
+                .returnResult();
+        assertThat(JsonPath.<Map<String, Object>>read(body(currentUser.getResponseBody()), "$"))
+                .containsOnlyKeys("id", "email", "role", "createdAt", "updatedAt");
 
         http.get()
                 .uri("/api/users/me")
@@ -367,14 +369,14 @@ class IdentityIntegrationTest {
         );
     }
 
-    private UserResult register(String email) {
-        UserResult result = http.post()
+    private UserResponse register(String email) {
+        UserResponse result = http.post()
                 .uri("/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("email", email, "password", PASSWORD))
                 .exchange()
                 .expectStatus().isCreated()
-                .expectBody(UserResult.class)
+                .expectBody(UserResponse.class)
                 .returnResult()
                 .getResponseBody();
 
@@ -385,21 +387,23 @@ class IdentityIntegrationTest {
     }
 
     private String login(String email) {
-        TokenResult result = http.post()
+        var response = http.post()
                 .uri("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("email", email, "password", PASSWORD))
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(TokenResult.class)
-                .returnResult()
-                .getResponseBody();
+                .expectBody().returnResult();
+
+        Map<String, Object> result = JsonPath.read(body(response.getResponseBody()), "$");
 
         assertThat(result).isNotNull();
-        assertThat(result.type()).isEqualTo("Bearer");
-        assertThat(result.token()).isNotBlank();
+        assertThat(result).containsOnlyKeys("token", "type");
+        assertThat(result.get("type")).isEqualTo("Bearer");
+        assertThat(result.get("token")).isInstanceOf(String.class);
+        assertThat((String) result.get("token")).isNotBlank();
 
-        return result.token();
+        return (String) result.get("token");
     }
 
     private static void assertSafeError(

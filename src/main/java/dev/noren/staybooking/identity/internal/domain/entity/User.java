@@ -44,7 +44,11 @@ public class User extends BaseEntity {
         if (email == null || email.isBlank()) {
             throw new InvalidDomainArgumentException("email cannot be blank");
         }
-        this.email = EmailNormalizer.normalize(email);
+        String normalized = EmailNormalizer.normalize(email);
+        if (normalized.length() > 255) {
+            throw new InvalidDomainArgumentException("email must not exceed 255 characters");
+        }
+        this.email = normalized;
     }
 
     private void changePasswordHash(String passwordHash) {

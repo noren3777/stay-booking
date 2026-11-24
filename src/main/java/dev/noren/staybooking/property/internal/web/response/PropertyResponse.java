@@ -24,4 +24,8 @@ public record PropertyResponse(
         List<AmenityResponse> amenities,
         List<PropertyImageResponse> images
 ) {
+    public PropertyResponse {
+        amenities = List.copyOf(amenities);
+        images = List.copyOf(images);
+    }
 }

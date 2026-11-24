@@ -1,6 +1,6 @@
 package dev.noren.staybooking;
 
-import dev.noren.staybooking.identity.internal.application.result.TokenResult;
+import dev.noren.staybooking.identity.internal.web.response.TokenResponse;
 import jakarta.persistence.EntityManagerFactory;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.Test;
@@ -77,13 +77,13 @@ class StayBookingApplicationTests {
                 .exchange()
                 .expectStatus().isCreated();
 
-        TokenResult result = restTestClient.post()
+        TokenResponse result = restTestClient.post()
                 .uri("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(credentials)
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(TokenResult.class)
+                .expectBody(TokenResponse.class)
                 .returnResult()
                 .getResponseBody();
 

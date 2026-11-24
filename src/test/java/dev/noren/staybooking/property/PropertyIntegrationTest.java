@@ -1,7 +1,7 @@
 package dev.noren.staybooking.property;
 
 import dev.noren.staybooking.bootstrap.exception.EntityVersionConflictException;
-import dev.noren.staybooking.identity.internal.application.result.TokenResult;
+import dev.noren.staybooking.identity.internal.web.response.TokenResponse;
 import dev.noren.staybooking.identity.internal.domain.entity.User;
 import dev.noren.staybooking.identity.internal.domain.enums.UserRole;
 import dev.noren.staybooking.identity.internal.persistence.UserRepository;
@@ -1436,13 +1436,13 @@ class PropertyIntegrationTest {
     }
 
     private String login(User user) {
-        TokenResult result = http.post()
+        TokenResponse result = http.post()
                 .uri("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("email", user.getEmail(), "password", PASSWORD))
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(TokenResult.class)
+                .expectBody(TokenResponse.class)
                 .returnResult()
                 .getResponseBody();
 

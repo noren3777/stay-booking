@@ -33,6 +33,12 @@ public class UserTest {
     }
 
     @Test
+    void rejectsEmailTooLongForStorageAfterNormalization() {
+        assertThatThrownBy(() -> User.create("a".repeat(250) + "@mail.com  ", HASH, null))
+                .isInstanceOf(InvalidDomainArgumentException.class);
+    }
+
+    @Test
     void rejectsBlankPasswordHash() {
         assertThatThrownBy(() -> User.create("alice@mail.com", "", null))
                 .isInstanceOf(InvalidDomainArgumentException.class);

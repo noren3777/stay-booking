@@ -9,4 +9,7 @@ public record PropertyCatalogResponse(
         long totalElements,
         int totalPages
 ) {
+    public PropertyCatalogResponse {
+        items = List.copyOf(items);
+    }
 }
