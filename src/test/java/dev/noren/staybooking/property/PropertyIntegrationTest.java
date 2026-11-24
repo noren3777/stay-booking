@@ -465,20 +465,20 @@ class PropertyIntegrationTest {
         Amenity wifi = amenities.saveAndFlush(Amenity.create("Wi-Fi-" + UUID.randomUUID()));
         Amenity parking = amenities.saveAndFlush(Amenity.create("Parking-" + UUID.randomUUID()));
         var barrier = new CyclicBarrier(2);
-        var executor = Executors.newFixedThreadPool(2);
-
         Callable<Boolean> selectWifi = () -> replaceAmenitiesInParallel(created.id(), wifi.getId(), barrier);
         Callable<Boolean> selectParking = () -> replaceAmenitiesInParallel(created.id(), parking.getId(), barrier);
 
         boolean wifiCommitted;
         boolean parkingCommitted;
-        try {
-            var first = executor.submit(selectWifi);
-            var second = executor.submit(selectParking);
-            wifiCommitted = first.get(20, TimeUnit.SECONDS);
-            parkingCommitted = second.get(20, TimeUnit.SECONDS);
-        } finally {
-            executor.shutdownNow();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            try {
+                var first = executor.submit(selectWifi);
+                var second = executor.submit(selectParking);
+                wifiCommitted = first.get(20, TimeUnit.SECONDS);
+                parkingCommitted = second.get(20, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
         }
 
         assertThat(wifiCommitted).isNotEqualTo(parkingCommitted);
@@ -607,8 +607,6 @@ class PropertyIntegrationTest {
         String frontUrl = "https://example.com/front.jpg";
         String roomUrl = "https://example.com/room.jpg";
         var barrier = new CyclicBarrier(2);
-        var executor = Executors.newFixedThreadPool(2);
-
         Callable<Boolean> selectFront = () ->
                 replaceImagesInParallel(created.id(), host.getId(), frontUrl, barrier);
         Callable<Boolean> selectRoom = () ->
@@ -616,13 +614,15 @@ class PropertyIntegrationTest {
 
         boolean frontCommitted;
         boolean roomCommitted;
-        try {
-            var first = executor.submit(selectFront);
-            var second = executor.submit(selectRoom);
-            frontCommitted = first.get(20, TimeUnit.SECONDS);
-            roomCommitted = second.get(20, TimeUnit.SECONDS);
-        } finally {
-            executor.shutdownNow();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            try {
+                var first = executor.submit(selectFront);
+                var second = executor.submit(selectRoom);
+                frontCommitted = first.get(20, TimeUnit.SECONDS);
+                roomCommitted = second.get(20, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
         }
 
         assertThat(frontCommitted).isNotEqualTo(roomCommitted);
@@ -655,7 +655,18 @@ class PropertyIntegrationTest {
         putImages(otherHostToken, created.id(), created.etag(), gallery)
                 .expectStatus().isForbidden();
         putImages(ownerToken, created.id(), null, gallery)
-                .expectStatus().isEqualTo(428);
+                .expectStatus().isEqualTo(428).expectBody()
+                .jsonPath("$.code").isEqualTo("PRECONDITION_REQUIRED")
+                .jsonPath("$.title").isEqualTo("Precondition Required")
+                .jsonPath("$.path").isEqualTo("/api/properties/" + created.id() + "/images")
+                .jsonPath("$.requestId").exists();
+        putImages(ownerToken, created.id(), "W/\"0\"", gallery)
+                .expectStatus().isBadRequest().expectBody()
+                .jsonPath("$.code").isEqualTo("BAD_REQUEST")
+                .jsonPath("$.detail").isEqualTo("If-Match must contain one strong quoted version ETag");
+        putImages(ownerToken, created.id(), "\"abc\"", gallery)
+                .expectStatus().isBadRequest().expectBody()
+                .jsonPath("$.detail").isEqualTo("If-Match must be a number");
         putImages(ownerToken, created.id(), created.etag(), List.of(image("relative.jpg", true)))
                 .expectStatus().isBadRequest();
         putImages(ownerToken, created.id(), created.etag(), List.of(image("https://example.com/a.jpg", false)))
@@ -680,7 +691,11 @@ class PropertyIntegrationTest {
                 .expectStatus().isNoContent()
                 .returnResult(String.class).getResponseHeaders().getETag();
         putImages(ownerToken, created.id(), created.etag(), List.of())
-                .expectStatus().isEqualTo(412);
+                .expectStatus().isEqualTo(412).expectBody()
+                .jsonPath("$.code").isEqualTo("PRECONDITION_FAILED")
+                .jsonPath("$.title").isEqualTo("Precondition Failed")
+                .jsonPath("$.path").isEqualTo("/api/properties/" + created.id() + "/images")
+                .jsonPath("$.requestId").exists();
 
         String activeEtag = http.patch()
                 .uri("/api/properties/{id}/activate", created.id())
