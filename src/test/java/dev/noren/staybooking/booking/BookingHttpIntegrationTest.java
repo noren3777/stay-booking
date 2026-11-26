@@ -137,6 +137,10 @@ class BookingHttpIntegrationTest {
                 .body(body).exchange().expectStatus().isUnauthorized()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.status").isEqualTo(401)
+                .jsonPath("$.code").isEqualTo("UNAUTHORIZED")
+                .jsonPath("$.title").isEqualTo("Unauthorized")
+                .jsonPath("$.path").isEqualTo("/api/bookings")
+                .jsonPath("$.requestId").exists()
                 .jsonPath("$.detail").isEqualTo("Authentication required");
         http.post().uri("/api/bookings")
                 .headers(headers -> headers.setBearerAuth(login(saveUser(ActorRole.HOST))))
@@ -144,6 +148,10 @@ class BookingHttpIntegrationTest {
                 .body(body).exchange().expectStatus().isForbidden()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.status").isEqualTo(403)
+                .jsonPath("$.code").isEqualTo("FORBIDDEN")
+                .jsonPath("$.title").isEqualTo("Forbidden")
+                .jsonPath("$.path").isEqualTo("/api/bookings")
+                .jsonPath("$.requestId").exists()
                 .jsonPath("$.detail").isEqualTo("Access denied");
         assertThat(bookings.count()).isEqualTo(bookingsBefore);
     }
@@ -161,8 +169,13 @@ class BookingHttpIntegrationTest {
                 .body(Map.of("checkIn", TODAY, "checkOut", TODAY.plusDays(1), "numberOfGuests", 1))
                 .exchange().expectStatus().isBadRequest().expectBody()
                 .jsonPath("$.status").isEqualTo(400)
+                .jsonPath("$.code").isEqualTo("VALIDATION_FAILED")
+                .jsonPath("$.title").isEqualTo("Bad Request")
+                .jsonPath("$.path").isEqualTo("/api/bookings")
+                .jsonPath("$.requestId").exists()
                 .jsonPath("$.detail").isEqualTo("Request validation failed")
-                .jsonPath("$.errors[0].field").isEqualTo("propertyId");
+                .jsonPath("$.errors[0].field").isEqualTo("propertyId")
+                .jsonPath("$.errors[0].message").exists();
 
         http.post().uri("/api/bookings")
                 .headers(headers -> headers.setBearerAuth(token))
@@ -170,7 +183,17 @@ class BookingHttpIntegrationTest {
                 .body(request(propertyId, TODAY, TODAY.plusDays(1), 0))
                 .exchange().expectStatus().isBadRequest().expectBody()
                 .jsonPath("$.status").isEqualTo(400)
-                .jsonPath("$.detail").isEqualTo("Request validation failed");
+                .jsonPath("$.code").isEqualTo("VALIDATION_FAILED");
+
+        http.post().uri("/api/bookings")
+                .headers(headers -> headers.setBearerAuth(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"propertyId\":")
+                .exchange().expectStatus().isBadRequest().expectBody()
+                .jsonPath("$.code").isEqualTo("BAD_REQUEST")
+                .jsonPath("$.detail").isEqualTo("Request is invalid")
+                .jsonPath("$.path").isEqualTo("/api/bookings")
+                .jsonPath("$.requestId").exists();
 
         http.post().uri("/api/bookings")
                 .headers(headers -> headers.setBearerAuth(token))
@@ -234,6 +257,10 @@ class BookingHttpIntegrationTest {
                 .body(body).exchange().expectStatus().isEqualTo(409)
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.status").isEqualTo(409)
+                .jsonPath("$.code").isEqualTo("CONFLICT")
+                .jsonPath("$.title").isEqualTo("Conflict")
+                .jsonPath("$.path").isEqualTo("/api/bookings")
+                .jsonPath("$.requestId").exists()
                 .jsonPath("$.detail").isEqualTo("Dates are unavailable for this property");
     }
 
@@ -279,6 +306,10 @@ class BookingHttpIntegrationTest {
                 .body(request(propertyId, TODAY, TODAY.plusDays(1), 1))
                 .exchange().expectStatus().isNotFound().expectBody()
                 .jsonPath("$.status").isEqualTo(404)
+                .jsonPath("$.code").isEqualTo("NOT_FOUND")
+                .jsonPath("$.title").isEqualTo("Not Found")
+                .jsonPath("$.path").isEqualTo("/api/bookings")
+                .jsonPath("$.requestId").exists()
                 .jsonPath("$.detail").isEqualTo("Property not found");
     }
 

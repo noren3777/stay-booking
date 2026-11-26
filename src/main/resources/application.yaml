@@ -14,4 +14,7 @@ app:
   jwt:
     issuer: stay-booking
     ttl: PT1H
-    secret-base64: ${JWT_SECRET_BASE64}
+    secret-base64: ${JWT_SECRET_BASE64:}
+
+springdoc:
+  paths-to-match: /api/**

@@ -14,8 +14,11 @@ import dev.noren.staybooking.identity.internal.persistence.UserRepository;
 import dev.noren.staybooking.identity.internal.persistence.exception.UserPersistenceExceptionTranslator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.nio.charset.StandardCharsets;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +35,10 @@ public class AuthService {
         if (role != null && !role.canRegister()) {
             throw new InvalidRegisterParameterException("Cannot register a user with this role");
         }
+        if (password == null || password.length() < 6
+                || password.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new InvalidRegisterParameterException("Password must be at least 6 characters and at most 72 UTF-8 bytes");
+        }
 
         String passwordHash = passwordEncoder.encode(password);
 
@@ -46,6 +53,10 @@ public class AuthService {
     }
 
     public TokenResult login(String email, String password) {
+        if (email == null || email.isBlank() || password == null || password.isBlank()
+                || password.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new BadCredentialsException("Bad credentials");
+        }
         Actor actor = authenticator.authenticate(
                 EmailNormalizer.normalize(email),
                 password

@@ -116,6 +116,16 @@ public class AuthServiceTest {
     }
 
     @Test
+    void rejectsPasswordsThatCannotBeSafelyEncoded() {
+        for (String password : new String[]{null, "short", "é".repeat(37)}) {
+            assertThatThrownBy(() -> service.register(EMAIL, password, null))
+                    .isInstanceOf(InvalidRegisterParameterException.class);
+        }
+
+        verifyNoInteractions(users, tokens, credentials);
+    }
+
+    @Test
     void invalidCredentialsDoNotIssueToken() {
         when(credentials.authenticate(EMAIL, PASSWORD))
                 .thenThrow(new BadCredentialsException("Bad credentials"));
@@ -125,6 +135,14 @@ public class AuthServiceTest {
                 .isInstanceOf(BadCredentialsException.class);
 
         verifyNoInteractions(tokens);
+    }
+
+    @Test
+    void loginRejectsPasswordsBeyondBcryptLimitWithoutCallingAuthenticator() {
+        assertThatThrownBy(() -> service.login(EMAIL, "é".repeat(37)))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verifyNoInteractions(credentials, tokens);
     }
 
 }

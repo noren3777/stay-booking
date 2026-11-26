@@ -24,4 +24,8 @@ public record PropertyResult(
         List<AmenityResult> amenities,
         List<PropertyImageResult> images
 ) {
+    public PropertyResult {
+        amenities = List.copyOf(amenities);
+        images = List.copyOf(images);
+    }
 }
