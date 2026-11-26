@@ -84,6 +84,24 @@ The default database connection uses the `staybooking` database, username `user`
 
 Docker must be running for the local PostgreSQL service and for tests that use PostgreSQL Testcontainers.
 
+## OpenAPI
+
+The generated OpenAPI document is available at `http://localhost:8080/v3/api-docs` (JSON) or `http://localhost:8080/v3/api-docs.yaml` (YAML). Open Swagger UI at `http://localhost:8080/swagger-ui.html`. The UI and specification are public for GET requests; API authorization is unchanged. The document covers implemented Identity, Property, Amenity, and Booking routes only. In Swagger UI, use **Authorize** with the JWT returned by `POST /api/auth/login` for protected operations.
+
+For example, register a guest with `POST /api/auth/register`:
+
+```json
+{"email":"alice@example.com","password":"Integration-password-31","role":"GUEST"}
+```
+
+For `POST /api/bookings`, replace the example `propertyId` with the ID returned from a property created by a HOST and activated with its current `If-Match` ETag:
+
+```json
+{"propertyId":"5d876d36-95d7-4d10-8181-ef5b699d625b","checkIn":"2030-06-10","checkOut":"2030-06-12","numberOfGuests":2}
+```
+
+The booking example returns `201` with `status: "PENDING_PAYMENT"` for an available property. Error responses use `application/problem+json` with `type`, `title`, `status`, `detail`, `code`, `path`, and `requestId`; Bean Validation errors also include `errors` entries with `field` and `message`.
+
 ## Build and Test
 
 ```bash

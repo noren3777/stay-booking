@@ -943,6 +943,11 @@ class PropertyIntegrationTest {
 
         assertThat(blockedEtag).isNotBlank().isNotEqualTo(etag);
 
+        putAmenities(ownerToken, id, blockedEtag, List.of())
+                .expectStatus().isEqualTo(409);
+        putImages(ownerToken, id, blockedEtag, List.of())
+                .expectStatus().isEqualTo(409);
+
         http.patch()
                 .uri("/api/properties/{id}/unblock", id)
                 .headers(headers -> {
@@ -1228,8 +1233,12 @@ class PropertyIntegrationTest {
         assertThat(renamed.getResponseBody().description()).isNull();
     }
 
-    @Test
-    void invalidPatchDoesNotPersistAnyField() {
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"title\":\"Changed title\",\"pricePerNight\":0}",
+            "{\"title\":\"Changed title\",\"maxGuests\":null}"
+    })
+    void invalidPatchDoesNotPersistAnyField(String patch) {
         String hostToken = createUserAndLogin(UserRole.HOST);
         CreatedProperty created = createProperty(hostToken);
 
@@ -1240,7 +1249,7 @@ class PropertyIntegrationTest {
                     headers.set(HttpHeaders.IF_MATCH, created.etag());
                 })
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("title", "Changed title", "pricePerNight", 0))
+                .body(patch)
                 .exchange()
                 .expectStatus().isBadRequest();
 

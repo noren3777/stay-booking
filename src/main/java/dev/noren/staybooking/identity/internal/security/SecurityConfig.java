@@ -23,6 +23,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.oauth2.server.resource.web.access.BearerTokenAccessDeniedHandler;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import tools.jackson.databind.ObjectMapper;
 
@@ -38,6 +39,12 @@ public class SecurityConfig {
             JwtAuthenticationConverter jwtAuthenticationConverter,
             ObjectMapper objectMapper
     ) {
+        BearerTokenAuthenticationEntryPoint bearerEntryPoint = new BearerTokenAuthenticationEntryPoint();
+        AuthenticationEntryPoint problemEntryPoint = (request, response, exception) -> {
+            bearerEntryPoint.commence(request, response, exception);
+            writeProblem(request, response, objectMapper, HttpStatus.UNAUTHORIZED, "Authentication required");
+        };
+
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -51,6 +58,9 @@ public class SecurityConfig {
                                 "/api/auth/register",
                                 "/api/auth/login"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/swagger-ui.html", "/swagger-ui/**",
+                                "/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/amenities").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/properties").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/properties/{id}").permitAll()
@@ -58,17 +68,14 @@ public class SecurityConfig {
                         .anyRequest()
                         .authenticated())
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint((request, response, exception) -> {
-                            new BearerTokenAuthenticationEntryPoint().commence(request, response, exception);
-                            writeProblem(request, response, objectMapper, HttpStatus.UNAUTHORIZED,
-                                    "Authentication required");
-                        })
+                        .authenticationEntryPoint(problemEntryPoint)
                         .accessDeniedHandler((request, response, exception) -> {
                             new BearerTokenAccessDeniedHandler().handle(request, response, exception);
                             writeProblem(request, response, objectMapper, HttpStatus.FORBIDDEN,
                                     "Access denied");
                         }))
                 .oauth2ResourceServer(oauth2 -> oauth2
+                        .authenticationEntryPoint(problemEntryPoint)
                         .jwt(jwt -> jwt
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter)))
                 .build();

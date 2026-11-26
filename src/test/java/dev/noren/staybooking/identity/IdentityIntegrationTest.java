@@ -19,6 +19,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -243,13 +244,25 @@ class IdentityIntegrationTest {
         http.get()
                 .uri("/api/users/me")
                 .exchange()
-                .expectStatus().isUnauthorized();
+                .expectStatus().isUnauthorized()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectHeader().value(HttpHeaders.WWW_AUTHENTICATE,
+                        value -> assertThat(value).startsWith("Bearer").doesNotContain("invalid_token"))
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("UNAUTHORIZED")
+                .jsonPath("$.requestId").isNotEmpty();
 
         http.get()
                 .uri("/api/users/me")
                 .headers(headers -> headers.setBearerAuth("not-a-jwt"))
                 .exchange()
-                .expectStatus().isUnauthorized();
+                .expectStatus().isUnauthorized()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectHeader().value(HttpHeaders.WWW_AUTHENTICATE,
+                        value -> assertThat(value).startsWith("Bearer ").contains("error=\"invalid_token\""))
+                .expectBody()
+                .jsonPath("$.code").isEqualTo("UNAUTHORIZED")
+                .jsonPath("$.requestId").isNotEmpty();
     }
 
     @Test
