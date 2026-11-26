@@ -12,7 +12,7 @@ public record JwtProperties(
 ) {
     public JwtProperties {
         if (secretBase64 == null || secretBase64.isBlank()) {
-            throw new IllegalArgumentException("JWT secret cannot be null or blank");
+            throw new IllegalArgumentException("JWT_SECRET_BASE64 is required and must not be blank");
         }
 
         if (issuer == null || issuer.isBlank()) {

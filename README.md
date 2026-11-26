@@ -52,6 +52,22 @@ flowchart LR
 
 You do not need to install Maven separately because the project includes Maven Wrapper.
 
+## Run with Docker Compose
+
+From the repository root, generate a JWT signing secret and start both services:
+
+```bash
+export JWT_SECRET_BASE64="$(openssl rand -base64 32)"
+docker compose up --build --wait
+docker compose ps
+```
+
+Both `app` and `postgres` should report `healthy`. You can also set `JWT_SECRET_BASE64` in `.env` using `.env.example` as a template. Compose passes the secret to the app at runtime. Keep the same secret across restarts to preserve existing tokens.
+
+To customize the Compose database settings, set `DB_NAME`, `DB_USERNAME`, and `DB_PASSWORD` in `.env`. Compose uses these values for both services. The PostgreSQL image uses them when initializing a new volume. To change the credentials for an existing volume, update them in PostgreSQL as well.
+
+The API is available at `http://localhost:8080`. The app healthcheck calls the public catalog at `GET /api/properties?size=1` from inside the container to check HTTP and database access. `/actuator/health` requires a JWT.
+
 ## Local Development
 
 1. Start PostgreSQL:
@@ -72,6 +88,16 @@ You do not need to install Maven separately because the project includes Maven W
 
 3. Run the application with the local profile:
 
+   The default connection is `jdbc:postgresql://localhost:5432/staybooking` with username `user` and password `password`. Compose reads `.env` automatically. If you set database overrides there, export the matching values before running Maven. Put the Compose `DB_NAME` in the last segment of `DB_URL`.
+
+   ```bash
+   export DB_URL='jdbc:postgresql://localhost:5432/custom_staybooking'
+   export DB_USERNAME='custom_user'
+   export DB_PASSWORD='your-compose-password'
+   ```
+
+   Replace the example values with your Compose settings. In PowerShell, set the variables with `$env:DB_URL`, `$env:DB_USERNAME`, and `$env:DB_PASSWORD`.
+
    ```bash
    ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
    ```
@@ -79,8 +105,6 @@ You do not need to install Maven separately because the project includes Maven W
    On Windows, use `mvnw.cmd` instead of `./mvnw`.
 
 The application will be available at `http://localhost:8080`. Its health endpoint at `http://localhost:8080/actuator/health` requires a valid JWT access token in the `Authorization: Bearer <token>` header.
-
-The default database connection uses the `staybooking` database, username `user`, password `password`, and port `5432`. You can override these settings with the `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` environment variables.
 
 Docker must be running for the local PostgreSQL service and for tests that use PostgreSQL Testcontainers.
 
